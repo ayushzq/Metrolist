@@ -1,0 +1,163 @@
+name: Build APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths-ignore:
+      - "README.md"
+      - "fastlane/**"
+      - "assets/**"
+      - ".github/**/*.md"
+      - ".github/FUNDING.yml"
+      - ".github/ISSUE_TEMPLATE/**"
+
+permissions:
+  contents: write
+  discussions: write
+
+jobs:
+  build_release:
+    name: Build Release (${{ matrix.variant }})
+    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          - variant: foss
+            variantName: Foss
+          - variant: gms
+            variantName: Gms
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # --- FIXED: JDK 21 se JDK 17 par switch kiya stable signing ke liye ---
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: "17"
+          distribution: "temurin"
+
+      # --- FIXED: Gradle actions update ---
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-cleanup: on-success
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # --- FIXED: Extension ko .keystore se badal kar .jks kiya (Jo tumne Termux me banayi thi) ---
+      - name: Create Keystore Directory
+        run: mkdir -p app/keystore
+
+      - name: Decode Keystore
+        run: echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/keystore/release.jks
+
+      # --- Build Step ---
+      - name: Build Release APK
+        run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release --warning-mode summary
+        env:
+          METROLIST_APPLICATION_ID: com.gaana
+          METROLIST_APP_NAME: Gaana
+          PULL_REQUEST: "false"
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+
+      # --- FIXED: Naya .jks extension paths ke saath apksigner loop ---
+      - name: Sign APKs
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
+          for apk in $(find app/build/outputs/apk/${{ matrix.variant }}/release -type f -name '*.apk'); do
+            if [[ "$apk" == *"-aligned.apk" || "$apk" == *"-signed.apk" ]]; then
+              continue
+            fi
+            echo "Signing $apk"
+            $BUILD_TOOLS/zipalign -f -p 4 "$apk" "${apk%.apk}-aligned.apk"
+            $BUILD_TOOLS/apksigner sign --ks app/keystore/release.jks --ks-pass pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias ${{ secrets.KEY_ALIAS }} --key-pass pass:${{ secrets.KEY_PASSWORD }} "${apk%.apk}-aligned.apk"
+            rm "$apk"
+            mv "${apk%.apk}-aligned.apk" "${apk%.apk}-signed.apk"
+          done
+
+      # --- Sabhi APKs ko Alag-Alag Upload Karna ---
+      
+      - name: Upload arm64-v8a APK (BEST FOR VIVO T4X)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaana-${{ matrix.variantName }}-arm64-v8a
+          path: app/build/outputs/apk/${{ matrix.variant }}/release/*arm64-v8a*-signed.apk
+          if-no-files-found: ignore
+
+      - name: Upload armeabi-v7a APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaana-${{ matrix.variantName }}-armeabi-v7a
+          path: app/build/outputs/apk/${{ matrix.variant }}/release/*armeabi-v7a*-signed.apk
+          if-no-files-found: ignore
+
+      - name: Upload x86 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaana-${{ matrix.variantName }}-x86
+          path: app/build/outputs/apk/${{ matrix.variant }}/release/*x86*-signed.apk
+          if-no-files-found: ignore
+
+      - name: Upload Universal APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaana-${{ matrix.variantName }}-Universal
+          path: |
+            app/build/outputs/apk/${{ matrix.variant }}/release/*-signed.apk
+            !app/build/outputs/apk/${{ matrix.variant }}/release/*arm64-v8a*.apk
+            !app/build/outputs/apk/${{ matrix.variant }}/release/*armeabi-v7a*.apk
+            !app/build/outputs/apk/${{ matrix.variant }}/release/*x86*.apk
+          if-no-files-found: warn
+
+      # --- YAHAN NAYA TELEGRAM BOT AUR DOWNLOAD LINK ADD KIYA HAI ---
+      - name: Send Telegram Message with Download Link
+        continue-on-error: true
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            ✅ Metrolist (Gaana) Build Successful!
+            
+            Commit: ${{ github.event.commits[0].message }}
+            Variant: ${{ matrix.variantName }}
+            
+            👇 Yahan click karke direct Artifacts (APK) download karein:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      # --- YAHAN TUMHARI BASEKEY WHATSAPP API INTEGRATION ADD KI HAI ---
+      - name: Send WhatsApp Notification via BaseKey
+        if: always() # Build pass ho ya fail, ye step hamesha chalega
+        run: |
+          # 1. Status set karna (Success / Failed)
+          if [ "${{ job.status }}" = "success" ]; then
+            BUILD_STATUS="Success ✅"
+          else
+            BUILD_STATUS="Failed ❌"
+          fi
+
+          # 2. BaseKey API ko 3 variables bhej rahe hain
+          curl -X POST https://superkey-app.vercel.app/api/v1/trigger \
+            -H "Authorization: Bearer ${{ secrets.BASEKEY_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"template\": \"apk_build_status\",
+              \"phone\": \"${{ secrets.MY_PHONE_NUMBER }}\",
+              \"variables\": [
+                \"${{ github.repository }} (${{ matrix.variantName }})\", 
+                \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\", 
+                \"$BUILD_STATUS\"
+              ]
+            }"
