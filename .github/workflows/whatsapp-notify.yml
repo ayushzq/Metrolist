@@ -1,7 +1,5 @@
 name: Manual WhatsApp Build Notification
 
-# workflow_dispatch ka matlab hai ki yeh action sirf tab chalega
-# jab tum khud aakar GitHub me 'Run workflow' ka button dabaoge.
 on:
   workflow_dispatch:
     inputs:
@@ -22,7 +20,7 @@ jobs:
     steps:
       - name: Send WhatsApp Notification via BaseKey API
         run: |
-          curl -X POST https://superkey-app.vercel.app/api/v1/trigger \
+          curl -X POST https://basekey.in/api/v1/trigger \
             -H "Authorization: Bearer ${{ secrets.BASEKEY_API_TOKEN }}" \
             -H "Content-Type: application/json" \
             -d '{
