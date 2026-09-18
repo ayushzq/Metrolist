@@ -1,0 +1,36 @@
+name: Manual WhatsApp Build Notification
+
+# workflow_dispatch ka matlab hai ki yeh action sirf tab chalega
+# jab tum khud aakar GitHub me 'Run workflow' ka button dabaoge.
+on:
+  workflow_dispatch:
+    inputs:
+      build_status:
+        description: 'Build Status (success / failed)'
+        required: true
+        default: 'success'
+        type: choice
+        options:
+          - success
+          - failed
+          - in-progress
+
+jobs:
+  notify_whatsapp:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send WhatsApp Notification via BaseKey API
+        run: |
+          curl -X POST https://superkey-app.vercel.app/api/v1/trigger \
+            -H "Authorization: Bearer ${{ secrets.BASEKEY_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "template": "apk_build_status",
+              "phone": "${{ secrets.WHATSAPP_PHONE_NUMBER }}",
+              "variables": [
+                "${{ github.repository }}", 
+                "${{ github.ref_name }}", 
+                "${{ inputs.build_status }}"
+              ]
+            }'
