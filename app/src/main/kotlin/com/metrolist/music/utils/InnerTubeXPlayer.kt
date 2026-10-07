@@ -101,6 +101,68 @@ object InnerTubeXPlayer {
             Result.failure(error)
         }
 
+    /**
+     * Resolves a video-only stream for [videoId]. It is played muted in a separate player that
+     * follows the audio player, so the audio pipeline (cache, downloads, notification) is untouched.
+     */
+    suspend fun videoStreamForPlayback(
+        videoId: String,
+        maxVideoHeight: Int,
+        connectivityManager: ConnectivityManager,
+        contentHints: ContentHints = ContentHints(),
+    ): Result<VideoStreamData> =
+        try {
+            val hints =
+                contentHints
+                    .copy(wantVideo = true, maxVideoHeight = maxVideoHeight)
+                    .withStreamCapabilities(
+                        allowHls = false,
+                        allowSabr = false,
+                        allowBoundedRange = true,
+                    )
+            val stream =
+                requireNotNull(
+                    bundle().extractor.extract(
+                        videoId = videoId,
+                        hints = hints,
+                        excludedClients = failedStreamClients(videoId),
+                        audioQuality = AudioQuality.LOW.toInnerTubeX(connectivityManager),
+                        clientPlaybackNonce = generateClientPlaybackNonce(),
+                    ),
+                ) { "InnerTubeX returned no playable stream" }
+            val url = stream.videoUrl
+            check(!url.isNullOrBlank() && !url.startsWith("sabr-video://")) { "No direct video stream available" }
+            Result.success(
+                VideoStreamData(
+                    url = url,
+                    headers = stream.headers,
+                    width = stream.videoWidth,
+                    height = stream.videoHeight,
+                    contentLengthBytes = stream.videoContentLengthBytes,
+                    clientName = stream.clientName,
+                    requireBoundedRange = stream.requireBoundedRange,
+                    rangeChunkSizeBytes = stream.rangeChunkSizeBytes,
+                    useRangeChunks = stream.useRangeChunks,
+                ),
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            Result.failure(error)
+        }
+
+    class VideoStreamData(
+        val url: String,
+        val headers: Map<String, String>,
+        val width: Int?,
+        val height: Int?,
+        val contentLengthBytes: Long?,
+        val clientName: String,
+        val requireBoundedRange: Boolean,
+        val rangeChunkSizeBytes: Long,
+        val useRangeChunks: Boolean,
+    )
+
     internal fun markStreamClientFailed(
         videoId: String,
         clientName: String,

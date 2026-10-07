@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
@@ -81,6 +83,7 @@ import com.metrolist.music.constants.PlayerHorizontalPadding
 import com.metrolist.music.constants.SeekExtraSeconds
 import com.metrolist.music.constants.SwipeThumbnailKey
 import com.metrolist.music.constants.ThumbnailCornerRadius
+import com.metrolist.music.constants.VideoModeKey
 import com.metrolist.music.listentogether.RoomRole
 import com.metrolist.music.ui.component.CastButton
 import com.metrolist.music.utils.rememberEnumPreference
@@ -220,6 +223,8 @@ fun Thumbnail(
     val swipeThumbnail = swipeThumbnailPref && !isListenTogetherGuest
     val hidePlayerThumbnail by rememberPreference(HidePlayerThumbnailKey, false)
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
+    var videoMode by rememberPreference(VideoModeKey, false)
+    val videoActive by remember { derivedStateOf { videoMode && isPlayerExpanded() } }
     val playerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
         defaultValue = PlayerBackgroundStyle.DEFAULT
@@ -403,7 +408,10 @@ fun Thumbnail(
                                 isLandscape = isLandscape,
                                 isListenTogetherGuest = isListenTogetherGuest,
                                 currentMediaId = mediaMetadata?.id,
-                                currentMediaThumbnail = mediaMetadata?.thumbnailUrl
+                                currentMediaThumbnail = mediaMetadata?.thumbnailUrl,
+                                videoMode = videoMode,
+                                videoActive = videoActive,
+                                onToggleVideo = { videoMode = !videoMode },
                             )
                         }
                     }
@@ -501,6 +509,9 @@ private fun ThumbnailItem(
     isListenTogetherGuest: Boolean = false,
     currentMediaId: String? = null,
     currentMediaThumbnail: String? = null,
+    videoMode: Boolean = false,
+    videoActive: Boolean = false,
+    onToggleVideo: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val incrementalSeekSkipEnabled by rememberPreference(SeekExtraSeconds, defaultValue = false)
@@ -574,6 +585,26 @@ private fun ThumbnailItem(
                     artworkUri = artworkUriToUse,
                     cropArtwork = cropAlbumArt
                 )
+
+                if (videoActive && item.mediaId == currentMediaId) {
+                    VideoLayer(
+                        mediaId = item.mediaId,
+                        audioPlayer = playerConnection.player,
+                        cropVideo = cropAlbumArt,
+                        followCounterpart = playerConnection.mediaMetadata.value?.isVideoSong != true,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                }
+            }
+
+            if (item.mediaId == currentMediaId && !hidePlayerThumbnail && !isListenTogetherGuest) {
+                VideoToggleButton(
+                    videoMode = videoMode,
+                    onClick = onToggleVideo,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(8.dp),
+                )
             }
             
             // Cast button at top-right corner of thumbnail
@@ -584,6 +615,32 @@ private fun ThumbnailItem(
                 tintColor = textBackgroundColor
             )
         }
+    }
+}
+
+/**
+ * Switches the player between artwork (audio only) and the muted video layer.
+ */
+@Composable
+private fun VideoToggleButton(
+    videoMode: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = if (videoMode) 0.65f else 0.4f))
+            .clickable(onClick = onClick),
+    ) {
+        Icon(
+            painter = painterResource(if (videoMode) R.drawable.music_note else R.drawable.videocam),
+            contentDescription = stringResource(if (videoMode) R.string.video_mode_on else R.string.video_mode_off),
+            tint = Color.White,
+            modifier = Modifier.size(20.dp),
+        )
     }
 }
 

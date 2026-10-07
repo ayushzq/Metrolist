@@ -96,6 +96,7 @@ import com.metrolist.innertube.models.EpisodeItem
 import com.metrolist.innertube.models.PlaylistItem
 import com.metrolist.innertube.models.PodcastItem
 import com.metrolist.innertube.models.SongItem
+import com.metrolist.innertube.models.WatchEndpoint.WatchEndpointMusicSupportedConfigs.WatchEndpointMusicConfig.Companion.MUSIC_VIDEO_TYPE_ATV
 import com.metrolist.innertube.models.YTItem
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalArtistNameAliases
@@ -494,6 +495,9 @@ fun SongListItem(
         }
         if (song.song.explicit) {
             Icon.Explicit()
+        }
+        if (!song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
+            Icon.VersionBadge(if (song.song.isVideo) SongVersion.ALTERNATE else SongVersion.OFFICIAL)
         }
         if (showInLibraryIcon && song.song.inLibrary != null) {
             Icon.Library()
@@ -1078,6 +1082,7 @@ fun MediaMetadataListItem(
         title = mediaMetadata.title,
         subtitle = {
             if (mediaMetadata.explicit) Icon.Explicit()
+            songVersionOf(mediaMetadata.musicVideoType, mediaMetadata.isEpisode)?.let { Icon.VersionBadge(it) }
             Text(
                 text = buildAnnotatedString {
                     val base = joinByBullet(
@@ -1142,6 +1147,9 @@ fun YouTubeListItem(
             Icon.Favorite()
         }
         if (item.explicit) Icon.Explicit()
+        if (item is SongItem) {
+            songVersionOf(item.musicVideoType, item.isEpisode)?.let { Icon.VersionBadge(it) }
+        }
         // if (item is SongItem && song?.song?.inLibrary != null) {
         //     Icon.Library()
         // }
@@ -1921,7 +1929,35 @@ data class Quadruple<A, B, C, D>(
     val fourth: D
 )
 
+/** Official studio track (blue tick) vs. music video / user upload / alternate version (gray tick). */
+enum class SongVersion { OFFICIAL, ALTERNATE }
+
+fun songVersionOf(
+    musicVideoType: String?,
+    isEpisode: Boolean = false,
+): SongVersion? =
+    when {
+        isEpisode || musicVideoType == null -> null
+        musicVideoType == MUSIC_VIDEO_TYPE_ATV -> SongVersion.OFFICIAL
+        else -> SongVersion.ALTERNATE
+    }
+
 object Icon {
+    @Composable
+    fun VersionBadge(version: SongVersion) {
+        Icon(
+            painter = painterResource(R.drawable.verified_badge),
+            contentDescription =
+                stringResource(
+                    if (version == SongVersion.OFFICIAL) R.string.badge_official_song else R.string.badge_video_version,
+                ),
+            tint = if (version == SongVersion.OFFICIAL) Color(0xFF1D9BF0) else MaterialTheme.colorScheme.outline,
+            modifier = Modifier
+                .size(16.dp)
+                .padding(end = 2.dp)
+        )
+    }
+
     @Composable
     fun Favorite() {
         Icon(

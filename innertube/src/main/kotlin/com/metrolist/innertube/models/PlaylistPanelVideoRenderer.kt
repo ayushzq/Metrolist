@@ -16,4 +16,21 @@ data class PlaylistPanelVideoRenderer(
     val unplayableText: Runs?,
     val menu: Menu?,
     val navigationEndpoint: NavigationEndpoint,
-)
+    val counterpart: List<Counterpart>? = null,
+) {
+    /** The other half of a song/video pair: the video for an audio track and vice versa. */
+    @Serializable
+    data class Counterpart(
+        val counterpartRenderer: CounterpartRenderer? = null,
+    )
+
+    @Serializable
+    data class CounterpartRenderer(
+        val playlistPanelVideoRenderer: CounterpartVideo? = null,
+    )
+
+    @Serializable
+    data class CounterpartVideo(
+        val videoId: String? = null,
+    )
+}

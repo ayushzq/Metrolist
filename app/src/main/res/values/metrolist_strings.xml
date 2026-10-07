@@ -994,4 +994,9 @@
     <string name="stream_source_web_creator_desc">Creator web client.</string>
     <string name="top_result">Top result</string>
     <string name="other">Other</string>
+    <string name="video_mode_on">Switch to audio only</string>
+    <string name="video_mode_off">Watch video</string>
+    <string name="video_unavailable">Video isn\'t available for this track</string>
+    <string name="badge_official_song">Official song</string>
+    <string name="badge_video_version">Video or alternate version</string>
 </resources>

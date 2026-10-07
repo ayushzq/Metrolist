@@ -2878,6 +2878,33 @@ object YouTube {
         )
     }
 
+    /**
+     * For an audio-only (ATV) track returns the videoId of its music video, the same pairing the
+     * Song/Video switch in YouTube Music uses. Returns null when the track has no counterpart.
+     */
+    suspend fun videoCounterpartId(videoId: String): Result<String?> =
+        runCatching {
+            innerTube
+                .next(WEB_REMIX, videoId, null, null, null, null)
+                .body<NextResponse>()
+                .contents
+                .singleColumnMusicWatchNextResultsRenderer
+                ?.tabbedRenderer
+                ?.watchNextTabbedResultsRenderer
+                ?.tabs
+                ?.getOrNull(0)
+                ?.tabRenderer
+                ?.content
+                ?.musicQueueRenderer
+                ?.content
+                ?.playlistPanelRenderer
+                ?.contents
+                ?.firstNotNullOfOrNull { content ->
+                    content.playlistPanelVideoRenderer?.takeIf { it.videoId == videoId }
+                }?.counterpart
+                ?.firstNotNullOfOrNull { it.counterpartRenderer?.playlistPanelVideoRenderer?.videoId }
+        }
+
     suspend fun next(
         endpoint: WatchEndpoint,
         continuation: String? = null,
