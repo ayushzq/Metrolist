@@ -109,6 +109,7 @@ object InnerTubeXPlayer {
         videoId: String,
         maxVideoHeight: Int,
         connectivityManager: ConnectivityManager,
+        allowHls: Boolean = false,
         contentHints: ContentHints = ContentHints(),
     ): Result<VideoStreamData> =
         try {
@@ -116,7 +117,7 @@ object InnerTubeXPlayer {
                 contentHints
                     .copy(wantVideo = true, maxVideoHeight = maxVideoHeight)
                     .withStreamCapabilities(
-                        allowHls = false,
+                        allowHls = allowHls,
                         allowSabr = false,
                         allowBoundedRange = true,
                     )
@@ -161,7 +162,9 @@ object InnerTubeXPlayer {
         val requireBoundedRange: Boolean,
         val rangeChunkSizeBytes: Long,
         val useRangeChunks: Boolean,
-    )
+    ) {
+        val isHls: Boolean get() = url.contains("/manifest/")
+    }
 
     internal fun markStreamClientFailed(
         videoId: String,

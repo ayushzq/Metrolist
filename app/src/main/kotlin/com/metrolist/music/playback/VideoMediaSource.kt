@@ -14,6 +14,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.extractor.ExtractorsFactory
@@ -150,6 +151,10 @@ internal fun buildVideoMediaSource(stream: InnerTubeXPlayer.VideoStreamData): Me
         OkHttpDataSource
             .Factory(client)
             .setDefaultRequestProperties(stream.headers)
+
+    if (stream.isHls) {
+        return HlsMediaSource.Factory(httpFactory).createMediaSource(MediaItem.fromUri(stream.url))
+    }
 
     val chunked = (stream.requireBoundedRange || stream.useRangeChunks) && stream.rangeChunkSizeBytes > 0L
     val dataSourceFactory =
