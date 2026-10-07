@@ -95,7 +95,7 @@ fun VideoLayer(
 
     val scope = rememberCoroutineScope()
     val connectivityManager = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
-    val maxHeight = if (connectivityManager.isActiveNetworkMetered) MAX_HEIGHT_METERED else MAX_HEIGHT_UNMETERED
+    val maxVideoHeight = if (connectivityManager.isActiveNetworkMetered) MAX_HEIGHT_METERED else MAX_HEIGHT_UNMETERED
 
     var stream by remember(mediaId, followCounterpart) { mutableStateOf<InnerTubeXPlayer.VideoStreamData?>(null) }
     var resolvedVideoId by remember(mediaId, followCounterpart) { mutableStateOf<String?>(null) }
@@ -136,7 +136,7 @@ fun VideoLayer(
         withContext(Dispatchers.IO) {
             InnerTubeXPlayer.videoStreamForPlayback(
                 videoId = videoId,
-                maxVideoHeight = maxHeight,
+                maxVideoHeight = maxVideoHeight,
                 connectivityManager = connectivityManager,
                 allowHls = attempt >= MAX_ATTEMPTS - 1,
             )
@@ -165,7 +165,7 @@ fun VideoLayer(
                 trackSelectionParameters =
                     trackSelectionParameters
                         .buildUpon()
-                        .setMaxVideoSize(Int.MAX_VALUE, maxHeight)
+                        .setMaxVideoSize(Int.MAX_VALUE, maxVideoHeight)
                         .build()
                 playWhenReady = false
                 setMediaSource(buildVideoMediaSource(resolved))
