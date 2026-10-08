@@ -95,7 +95,7 @@ fun VideoLayer(
 
     val scope = rememberCoroutineScope()
     val connectivityManager = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
-    val maxVideoHeight = if (connectivityManager.isActiveNetworkMetered) MAX_HEIGHT_METERED else MAX_HEIGHT_UNMETERED
+    val videoMaxHeight = if (connectivityManager.isActiveNetworkMetered) MAX_HEIGHT_METERED else MAX_HEIGHT_UNMETERED
 
     var stream by remember(mediaId, followCounterpart) { mutableStateOf<InnerTubeXPlayer.VideoStreamData?>(null) }
     var resolvedVideoId by remember(mediaId, followCounterpart) { mutableStateOf<String?>(null) }
@@ -136,7 +136,7 @@ fun VideoLayer(
         withContext(Dispatchers.IO) {
             InnerTubeXPlayer.videoStreamForPlayback(
                 videoId = videoId,
-                maxVideoHeight = maxVideoHeight,
+                maxVideoHeight = videoMaxHeight,
                 connectivityManager = connectivityManager,
                 allowHls = attempt >= MAX_ATTEMPTS - 1,
             )
@@ -165,7 +165,7 @@ fun VideoLayer(
                 trackSelectionParameters =
                     trackSelectionParameters
                         .buildUpon()
-                        .setMaxVideoSize(Int.MAX_VALUE, maxVideoHeight)
+                        .setMaxVideoSize(Int.MAX_VALUE, videoMaxHeight)
                         .build()
                 playWhenReady = false
                 setMediaSource(buildVideoMediaSource(resolved))
@@ -273,15 +273,18 @@ fun VideoLayer(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                val boxRatio = maxWidth / maxHeight
-                val fillWidth = if (cropVideo) videoRatio < boxRatio else videoRatio >= boxRatio
-                val width = if (fillWidth) maxWidth else maxHeight * videoRatio
-                val height = if (fillWidth) maxWidth / videoRatio else maxHeight
+                val boxWidth: Float = maxWidth.value
+                val boxHeight: Float = maxHeight.value
+                val ratio: Float = videoRatio
+                val boxRatio: Float = boxWidth / boxHeight
+                val fillWidth: Boolean = if (cropVideo) ratio < boxRatio else ratio >= boxRatio
+                val width: Float = if (fillWidth) boxWidth else boxHeight * ratio
+                val height: Float = if (fillWidth) boxWidth / ratio else boxHeight
                 AndroidView(
                     factory = { textureView },
                     modifier =
                         Modifier
-                            .requiredSize(width, height)
+                            .requiredSize(width.dp, height.dp)
                             .alpha(if (hasFrame) 1f else 0f),
                 )
             }
