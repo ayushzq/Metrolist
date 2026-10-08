@@ -63,7 +63,7 @@ object VideoStreamCache {
         val fixed = fixedHeight(context)
         if (fixed > 0) return fixed
         val appContext = context.applicationContext
-        val bitsPerSecond = DefaultBandwidthMeter.getSingletonInstance(appContext).bandwidthEstimate
+        val bitsPerSecond = DefaultBandwidthMeter.getSingletonInstance(appContext).bitrateEstimate
         val bySpeed =
             when {
                 bitsPerSecond < 2_500_000L -> 360
