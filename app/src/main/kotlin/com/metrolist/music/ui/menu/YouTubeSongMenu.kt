@@ -77,6 +77,7 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.ListDialog
 import com.metrolist.music.ui.component.LocalBottomSheetPageState
 import com.metrolist.music.ui.component.Material3MenuGroup
+import com.metrolist.music.utils.ContentFilter
 import com.metrolist.music.ui.component.Material3MenuItemData
 import com.metrolist.music.ui.component.NewAction
 import com.metrolist.music.ui.component.NewActionGrid
@@ -709,6 +710,25 @@ fun YouTubeSongMenu(
                                 bottomSheetPageState.show {
                                     ShowMediaInfo(song.id)
                                 }
+                            }
+                        )
+                    )
+                    add(
+                        Material3MenuItemData(
+                            title = { Text(text = stringResource(R.string.dont_recommend)) },
+                            description = { Text(text = stringResource(R.string.dont_recommend_desc)) },
+                            icon = {
+                                Icon(
+                                    painter = painterResource(R.drawable.close),
+                                    contentDescription = null,
+                                )
+                            },
+                            onClick = {
+                                coroutineScope.launch {
+                                    ContentFilter.block(context, song.id)
+                                }
+                                android.widget.Toast.makeText(context, R.string.dont_recommend_done, android.widget.Toast.LENGTH_SHORT).show()
+                                onDismiss()
                             }
                         )
                     )

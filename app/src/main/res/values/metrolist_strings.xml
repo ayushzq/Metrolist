@@ -999,4 +999,16 @@
     <string name="video_unavailable">Video isn\'t available for this track</string>
     <string name="badge_official_song">Official song</string>
     <string name="badge_video_version">Video or alternate version</string>
+    <string name="daily_mix_title">Daily Mix %1$d</string>
+    <string name="fresh_picks">New to you</string>
+    <string name="new_from_your_artists">New from your artists</string>
+    <string name="new_releases">New releases</string>
+    <string name="artists_you_may_like">Artists you may like</string>
+    <string name="smart_content_filter">Smart content filter</string>
+    <string name="smart_content_filter_desc">Hide vulgar songs from recommendations</string>
+    <string name="blocked_words">Blocked words</string>
+    <string name="blocked_words_desc">Songs with these words in the title or artist are hidden (comma separated)</string>
+    <string name="dont_recommend">Don\'t recommend</string>
+    <string name="dont_recommend_desc">Hide this song from suggestions</string>
+    <string name="dont_recommend_done">We will stop recommending this</string>
 </resources>

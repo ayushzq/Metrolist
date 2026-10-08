@@ -50,18 +50,17 @@ import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.HttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
-import com.metrolist.innertube.YouTube
 import com.metrolist.music.R
 import com.metrolist.music.playback.buildVideoMediaSource
 import com.metrolist.music.utils.InnerTubeXPlayer
-import kotlinx.coroutines.Dispatchers
+import com.metrolist.music.utils.VideoStreamCache
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.coroutines.withContext
 import timber.log.Timber
 import kotlin.math.abs
 
@@ -70,10 +69,8 @@ private const val SYNC_INTERVAL_MS = 250L
 private const val HARD_SEEK_DRIFT_MS = 600L
 private const val SOFT_CORRECT_DRIFT_MS = 120L
 private const val SOFT_CORRECT_FACTOR = 0.05f
-private const val MAX_HEIGHT_METERED = 360
-private const val MAX_HEIGHT_UNMETERED = 720
 private const val MAX_ATTEMPTS = 3
-private const val FIRST_FRAME_TIMEOUT_MS = 20_000L
+private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
 /**
  * Plays the video track of [mediaId] muted on top of the artwork while the regular audio player
@@ -95,10 +92,11 @@ fun VideoLayer(
 
     val scope = rememberCoroutineScope()
     val connectivityManager = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
-    val videoMaxHeight = if (connectivityManager.isActiveNetworkMetered) MAX_HEIGHT_METERED else MAX_HEIGHT_UNMETERED
+    val videoMaxHeight = VideoStreamCache.defaultMaxHeight(connectivityManager)
+    val cached = remember(mediaId, followCounterpart) { VideoStreamCache.peek(mediaId, followCounterpart) }
 
-    var stream by remember(mediaId, followCounterpart) { mutableStateOf<InnerTubeXPlayer.VideoStreamData?>(null) }
-    var resolvedVideoId by remember(mediaId, followCounterpart) { mutableStateOf<String?>(null) }
+    var stream by remember(mediaId, followCounterpart) { mutableStateOf(cached?.stream) }
+    var resolvedVideoId by remember(mediaId, followCounterpart) { mutableStateOf(cached?.videoId) }
     var attempt by remember(mediaId, followCounterpart) { mutableIntStateOf(0) }
     var failureDetail by remember(mediaId, followCounterpart) { mutableStateOf<String?>(null) }
     val failed = failureDetail != null
@@ -114,6 +112,7 @@ fun VideoLayer(
         val id = resolvedVideoId
         if (id != null && clientName != null) InnerTubeXPlayer.markStreamClientFailed(id, clientName)
         if (httpCode == 403) scope.launch { InnerTubeXPlayer.refreshAfterStreamRejection() }
+        VideoStreamCache.invalidate(mediaId, followCounterpart)
         if (attempt < MAX_ATTEMPTS - 1) {
             attempt = if (extractionFailed) MAX_ATTEMPTS - 1 else attempt + 1
         } else {
@@ -122,27 +121,19 @@ fun VideoLayer(
     }
 
     LaunchedEffect(mediaId, followCounterpart, attempt) {
-        stream = null
-        // An audio-only track's own video is just artwork; its music video is the paired counterpart.
-        val videoId =
-            resolvedVideoId
-                ?: (
-                    if (followCounterpart) {
-                        withContext(Dispatchers.IO) { YouTube.videoCounterpartId(mediaId).getOrNull() } ?: mediaId
-                    } else {
-                        mediaId
-                    }
-                ).also { resolvedVideoId = it }
-        withContext(Dispatchers.IO) {
-            InnerTubeXPlayer.videoStreamForPlayback(
-                videoId = videoId,
-                maxVideoHeight = videoMaxHeight,
-                connectivityManager = connectivityManager,
+        if (attempt > 0) stream = null
+        VideoStreamCache
+            .resolve(
+                context = context,
+                mediaId = mediaId,
+                followCounterpart = followCounterpart,
+                maxHeight = videoMaxHeight,
                 allowHls = attempt >= MAX_ATTEMPTS - 1,
-            )
-        }.onSuccess { stream = it }
-            .onFailure {
-                Timber.tag(TAG).w(it, "Video stream unavailable for %s", videoId)
+            ).onSuccess {
+                resolvedVideoId = it.videoId
+                stream = it.stream
+            }.onFailure {
+                Timber.tag(TAG).w(it, "Video stream unavailable for %s", mediaId)
                 onStreamFailure(it.message ?: it::class.java.simpleName, null, null, extractionFailed = true)
             }
     }
@@ -160,7 +151,16 @@ fun VideoLayer(
         }
 
         val player =
-            ExoPlayer.Builder(context).build().apply {
+            ExoPlayer
+                .Builder(context)
+                // Start as soon as ~0.5s is buffered; the video is muted and follows the audio anyway.
+                .setLoadControl(
+                    DefaultLoadControl
+                        .Builder()
+                        .setBufferDurationsMs(2_000, 15_000, 500, 1_500)
+                        .build(),
+                ).build()
+                .apply {
                 volume = 0f
                 trackSelectionParameters =
                     trackSelectionParameters

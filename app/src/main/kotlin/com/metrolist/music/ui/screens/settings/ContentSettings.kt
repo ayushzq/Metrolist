@@ -45,6 +45,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.TextFieldValue
+import com.metrolist.music.ui.component.TextFieldDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -68,7 +70,9 @@ import com.metrolist.music.constants.EnableLrcLibKey
 import com.metrolist.music.constants.EnablePaxsenixKey
 import com.metrolist.music.constants.EnableLyricsPlus
 import com.metrolist.music.constants.EnableZemerKey
+import com.metrolist.music.constants.BlockedKeywordsKey
 import com.metrolist.music.constants.HideExplicitKey
+import com.metrolist.music.constants.SmartContentFilterKey
 import com.metrolist.music.constants.HideVideoSongsKey
 import com.metrolist.music.constants.HideYoutubeShortsKey
 import com.metrolist.music.constants.LanguageCodeToName
@@ -113,6 +117,9 @@ fun ContentSettings(
     val (contentLanguage, onContentLanguageChange) = rememberPreference(key = ContentLanguageKey, defaultValue = "system")
     val (contentCountry, onContentCountryChange) = rememberPreference(key = ContentCountryKey, defaultValue = "system")
     val (hideExplicit, onHideExplicitChange) = rememberPreference(key = HideExplicitKey, defaultValue = false)
+    val (smartContentFilter, onSmartContentFilterChange) = rememberPreference(key = SmartContentFilterKey, defaultValue = true)
+    val (blockedKeywords, onBlockedKeywordsChange) = rememberPreference(key = BlockedKeywordsKey, defaultValue = "")
+    var showBlockedWordsDialog by remember { mutableStateOf(false) }
     val (hideVideoSongs, onHideVideoSongsChange) = rememberPreference(key = HideVideoSongsKey, defaultValue = false)
     val (hideYoutubeShorts, onHideYoutubeShortsChange) = rememberPreference(key = HideYoutubeShortsKey, defaultValue = false)
     val (showArtistDescription, onShowArtistDescriptionChange) = rememberPreference(key = ShowArtistDescriptionKey, defaultValue = true)
@@ -325,6 +332,17 @@ fun ContentSettings(
 
     var showContentCountryDialog by rememberSaveable {
         mutableStateOf(false)
+    }
+
+    if (showBlockedWordsDialog) {
+        TextFieldDialog(
+            title = { Text(stringResource(R.string.blocked_words)) },
+            initialTextFieldValue = TextFieldValue(blockedKeywords),
+            singleLine = false,
+            isInputValid = { true },
+            onDone = { onBlockedKeywordsChange(it.trim()) },
+            onDismiss = { showBlockedWordsDialog = false },
+        )
     }
 
     if (showContentCountryDialog) {
@@ -785,6 +803,35 @@ fun ContentSettings(
                         )
                     },
                     onClick = { onHideExplicitChange(!hideExplicit) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.explicit),
+                    title = { Text(stringResource(R.string.smart_content_filter)) },
+                    description = { Text(stringResource(R.string.smart_content_filter_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = smartContentFilter,
+                            onCheckedChange = onSmartContentFilterChange,
+                            thumbContent = {
+                                Icon(
+                                    painter = painterResource(
+                                        id = if (smartContentFilter) R.drawable.check else R.drawable.close
+                                    ),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(SwitchDefaults.IconSize)
+                                )
+                            }
+                        )
+                    },
+                    onClick = { onSmartContentFilterChange(!smartContentFilter) }
+                ),
+                Material3SettingsItem(
+                    icon = painterResource(R.drawable.close),
+                    title = { Text(stringResource(R.string.blocked_words)) },
+                    description = {
+                        Text(blockedKeywords.ifBlank { stringResource(R.string.blocked_words_desc) })
+                    },
+                    onClick = { showBlockedWordsDialog = true }
                 ),
                 Material3SettingsItem(
                     icon = painterResource(R.drawable.slow_motion_video),

@@ -24,6 +24,7 @@ import androidx.media3.extractor.mp4.Mp4Extractor
 import com.metrolist.innertube.YouTube
 import com.metrolist.music.utils.InnerTubeXPlayer
 import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /**
  * Some YouTube clients only serve bounded byte ranges. This wrapper keeps requesting the next
@@ -137,6 +138,8 @@ internal fun buildVideoMediaSource(stream: InnerTubeXPlayer.VideoStreamData): Me
     val client =
         OkHttpClient
             .Builder()
+            .connectTimeout(6, TimeUnit.SECONDS)
+            .readTimeout(10, TimeUnit.SECONDS)
             .proxy(YouTube.proxy)
             .proxyAuthenticator { _, response ->
                 YouTube.proxyAuth?.let { auth ->

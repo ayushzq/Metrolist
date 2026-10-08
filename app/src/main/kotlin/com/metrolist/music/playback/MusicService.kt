@@ -160,6 +160,7 @@ import com.metrolist.music.constants.ScrobbleDelayPercentKey
 import com.metrolist.music.constants.ScrobbleDelaySecondsKey
 import com.metrolist.music.constants.ScrobbleMinSongDurationKey
 import com.metrolist.music.constants.ShowLyricsKey
+import com.metrolist.music.constants.VideoModeKey
 import com.metrolist.music.constants.ShuffleModeKey
 import com.metrolist.music.constants.ShufflePlaylistFirstKey
 import com.metrolist.music.constants.SimilarContent
@@ -215,6 +216,7 @@ import com.metrolist.music.utils.joinToArtistString
 import com.metrolist.music.utils.InnerTubeXPlayer
 import com.metrolist.music.utils.dataStore
 import com.metrolist.music.utils.get
+import com.metrolist.music.utils.VideoStreamCache
 import com.metrolist.music.utils.reportException
 import com.metrolist.music.widget.MetrolistWidgetManager
 import com.metrolist.music.widget.MusicWidgetReceiver
@@ -871,6 +873,18 @@ class MusicService :
         currentSong.debounce(1000).collect(scope) { song ->
             updateNotification()
             updateWidgetUI(player.isPlaying)
+        }
+
+        // Warm up the video stream while the track is starting, so opening the player shows video
+        // right away instead of waiting for stream extraction.
+        currentMediaMetadata.distinctUntilChangedBy { it?.id }.collectLatest(scope) { mediaMetadata ->
+            if (mediaMetadata != null && !mediaMetadata.isEpisode && (dataStore.data.first()[VideoModeKey] ?: false)) {
+                VideoStreamCache.prefetch(
+                    context = this@MusicService,
+                    mediaId = mediaMetadata.id,
+                    followCounterpart = !mediaMetadata.isVideoSong,
+                )
+            }
         }
 
         combine(
