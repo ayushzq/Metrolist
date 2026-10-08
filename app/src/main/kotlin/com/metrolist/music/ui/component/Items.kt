@@ -589,6 +589,9 @@ fun SongGridItem(
         if (showLikedIcon && song.song.liked) {
             Icon.Favorite()
         }
+        if (!song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
+            Icon.VersionBadge(if (song.song.isVideo) SongVersion.ALTERNATE else SongVersion.OFFICIAL)
+        }
         if (showInLibraryIcon && song.song.inLibrary != null) {
             Icon.Library()
         }
@@ -1209,15 +1212,20 @@ fun YouTubeListItem(
             },
             badges = badges,
             thumbnailContent = {
-                ItemThumbnail(
-                    thumbnailUrl = item.thumbnail,
-                    albumIndex = albumIndex,
-                    isSelected = isSelected,
-                    isActive = isActive,
-                    isPlaying = isPlaying,
-                    shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
-                    modifier = Modifier.size(ListThumbnailSize)
-                )
+                Box(contentAlignment = Alignment.Center) {
+                    ItemThumbnail(
+                        thumbnailUrl = item.thumbnail,
+                        albumIndex = albumIndex,
+                        isSelected = isSelected,
+                        isActive = isActive,
+                        isPlaying = isPlaying,
+                        shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
+                        modifier = Modifier.size(ListThumbnailSize)
+                    )
+                    if (item is ArtistItem && item.isVerified) {
+                        VerifiedAvatarBadge(size = 18.dp)
+                    }
+                }
             },
             trailingContent = trailingContent,
             modifier = modifier,
@@ -1257,6 +1265,9 @@ fun YouTubeGridItem(
             Icon.Favorite()
         }
         if (item.explicit) Icon.Explicit()
+        if (item is SongItem) {
+            songVersionOf(item.musicVideoType, item.isEpisode)?.let { Icon.VersionBadge(it) }
+        }
         // if (item is SongItem && song?.song?.inLibrary != null) Icon.Library()
         if (item is SongItem) {
             val download by LocalDownloadUtil.current.getDownload(item.id).collectAsStateWithLifecycle(null)
@@ -1316,6 +1327,10 @@ fun YouTubeGridItem(
             isPlaying = isPlaying,
             shape = if (item is ArtistItem) CircleShape else RoundedCornerShape(ThumbnailCornerRadius),
         )
+
+        if (item is ArtistItem && item.isVerified) {
+            VerifiedAvatarBadge()
+        }
 
         if (item is SongItem && !isActive) {
             OverlayPlayButton(
@@ -1929,6 +1944,27 @@ data class Quadruple<A, B, C, D>(
     val fourth: D
 )
 
+/** Blue tick on the corner of a circular channel/artist avatar, like on Threads. Verified channels only. */
+@Composable
+fun BoxScope.VerifiedAvatarBadge(size: Dp = 24.dp) {
+    Box(
+        contentAlignment = Alignment.Center,
+        modifier = Modifier
+            .align(Alignment.BottomEnd)
+            .padding(2.dp)
+            .size(size)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surface),
+    ) {
+        Icon(
+            painter = painterResource(R.drawable.verified_badge),
+            contentDescription = stringResource(R.string.badge_verified_channel),
+            tint = Color(0xFF1D9BF0),
+            modifier = Modifier.size(size - 3.dp),
+        )
+    }
+}
+
 /** Official studio track (blue tick) vs. music video / user upload / alternate version (gray tick). */
 enum class SongVersion { OFFICIAL, ALTERNATE }
 
@@ -1953,8 +1989,8 @@ object Icon {
                 ),
             tint = if (version == SongVersion.OFFICIAL) Color(0xFF1D9BF0) else MaterialTheme.colorScheme.outline,
             modifier = Modifier
-                .size(16.dp)
-                .padding(end = 2.dp)
+                .size(19.dp)
+                .padding(end = 3.dp)
         )
     }
 

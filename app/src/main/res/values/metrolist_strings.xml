@@ -1011,4 +1011,8 @@
     <string name="dont_recommend">Don\'t recommend</string>
     <string name="dont_recommend_desc">Hide this song from suggestions</string>
     <string name="dont_recommend_done">We will stop recommending this</string>
+    <string name="badge_verified_channel">Verified channel</string>
+    <string name="video_quality">Video quality</string>
+    <string name="video_quality_auto">Auto</string>
+    <string name="video_quality_auto_desc">Auto (matches your connection speed)</string>
 </resources>

@@ -11,3 +11,10 @@ data class Badges(
         val icon: Icon,
     )
 }
+
+/** True when YouTube marks the channel with a verified / official-artist badge. */
+fun List<Badges>?.hasVerifiedBadge(): Boolean =
+    this?.any {
+        val type = it.musicInlineBadgeRenderer?.icon?.iconType
+        type != null && (type.contains("VERIFIED") || type.contains("OFFICIAL_ARTIST"))
+    } ?: false

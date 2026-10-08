@@ -875,15 +875,26 @@ class MusicService :
             updateWidgetUI(player.isPlaying)
         }
 
-        // Warm up the video stream while the track is starting, so opening the player shows video
-        // right away instead of waiting for stream extraction.
+        // Warm up the video stream for the current and the next track, so opening the player (or
+        // skipping ahead) shows video within seconds instead of waiting for stream extraction.
         currentMediaMetadata.distinctUntilChangedBy { it?.id }.collectLatest(scope) { mediaMetadata ->
-            if (mediaMetadata != null && !mediaMetadata.isEpisode && (dataStore.data.first()[VideoModeKey] ?: false)) {
-                VideoStreamCache.prefetch(
-                    context = this@MusicService,
-                    mediaId = mediaMetadata.id,
-                    followCounterpart = !mediaMetadata.isVideoSong,
-                )
+            if (mediaMetadata == null || mediaMetadata.isEpisode) return@collectLatest
+            if (!(dataStore.data.first()[VideoModeKey] ?: false)) return@collectLatest
+            VideoStreamCache.prefetch(
+                context = this@MusicService,
+                mediaId = mediaMetadata.id,
+                followCounterpart = !mediaMetadata.isVideoSong,
+            )
+            val nextIndex = player.nextMediaItemIndex
+            if (nextIndex != C.INDEX_UNSET) {
+                val next = player.getMediaItemAt(nextIndex).metadata
+                if (next != null && !next.isEpisode) {
+                    VideoStreamCache.prefetch(
+                        context = this@MusicService,
+                        mediaId = next.id,
+                        followCounterpart = !next.isVideoSong,
+                    )
+                }
             }
         }
 
@@ -2039,9 +2050,14 @@ class MusicService :
         automixItems.value = emptyList()
     }
 
+    /** Number of "Play next" items that are queued directly after the current item, in order. */
+    private var pendingPlayNext = 0
+    private var lastQueueIndex = C.INDEX_UNSET
+
     fun playNext(items: List<MediaItem>) {
         // If queue is empty or player is idle, play immediately instead
         if (player.mediaItemCount == 0 || player.playbackState == STATE_IDLE) {
+            pendingPlayNext = 0
             player.setMediaItems(items)
             player.prepare()
             if (castConnectionHandler?.isCasting?.value != true) {
@@ -2067,8 +2083,16 @@ class MusicService :
             }
         }
 
-        val insertIndex = player.currentMediaItemIndex + 1
         val shuffleEnabled = player.shuffleModeEnabled
+        // Earlier "Play next" items still waiting right after the current one stay in front, so
+        // queuing A and then B plays A then B (like Spotify's queue) instead of B then A.
+        val insertIndex =
+            if (shuffleEnabled) {
+                player.currentMediaItemIndex + 1
+            } else {
+                minOf(player.currentMediaItemIndex + 1 + pendingPlayNext, player.mediaItemCount)
+            }
+        pendingPlayNext = if (shuffleEnabled) 0 else pendingPlayNext + items.size
 
         // Insert items immediately after the current item in the window/index space
         player.addMediaItems(insertIndex, items)
@@ -2517,6 +2541,18 @@ class MusicService :
         mediaItem: MediaItem?,
         reason: Int,
     ) {
+        if (pendingPlayNext > 0) {
+            // Moving forward by one (auto advance or "next") consumes one waiting item;
+            // any other jump or a new queue invalidates the count.
+            pendingPlayNext =
+                if (lastQueueIndex != C.INDEX_UNSET && player.currentMediaItemIndex == lastQueueIndex + 1) {
+                    pendingPlayNext - 1
+                } else {
+                    0
+                }
+        }
+        lastQueueIndex = player.currentMediaItemIndex
+
         // Only natural completion transitions mark the previous track as fully cached,
         // never a manual skip or seek. Read lastTransitionedMediaId before replacing it.
         if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_AUTO ||

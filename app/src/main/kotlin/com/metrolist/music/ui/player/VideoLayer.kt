@@ -13,6 +13,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -91,9 +92,8 @@ fun VideoLayer(
     val isForeground = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
 
     val scope = rememberCoroutineScope()
-    val connectivityManager = remember { context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager }
-    val videoMaxHeight = VideoStreamCache.defaultMaxHeight(connectivityManager)
-    val cached = remember(mediaId, followCounterpart) { VideoStreamCache.peek(mediaId, followCounterpart) }
+    val videoMaxHeight = remember(mediaId) { VideoStreamCache.maxHeightFor(context) }
+    val cached = remember(mediaId, followCounterpart) { VideoStreamCache.peek(context, mediaId, followCounterpart) }
 
     var stream by remember(mediaId, followCounterpart) { mutableStateOf(cached?.stream) }
     var resolvedVideoId by remember(mediaId, followCounterpart) { mutableStateOf(cached?.videoId) }
@@ -112,7 +112,7 @@ fun VideoLayer(
         val id = resolvedVideoId
         if (id != null && clientName != null) InnerTubeXPlayer.markStreamClientFailed(id, clientName)
         if (httpCode == 403) scope.launch { InnerTubeXPlayer.refreshAfterStreamRejection() }
-        VideoStreamCache.invalidate(mediaId, followCounterpart)
+        VideoStreamCache.invalidate(context, mediaId, followCounterpart)
         if (attempt < MAX_ATTEMPTS - 1) {
             attempt = if (extractionFailed) MAX_ATTEMPTS - 1 else attempt + 1
         } else {
@@ -127,7 +127,6 @@ fun VideoLayer(
                 context = context,
                 mediaId = mediaId,
                 followCounterpart = followCounterpart,
-                maxHeight = videoMaxHeight,
                 allowHls = attempt >= MAX_ATTEMPTS - 1,
             ).onSuccess {
                 resolvedVideoId = it.videoId
@@ -141,6 +140,16 @@ fun VideoLayer(
     var videoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
     var hasFrame by remember { mutableStateOf(false) }
     var videoRatio by remember { mutableFloatStateOf(16f / 9f) }
+    var loadingSeconds by remember(mediaId, followCounterpart) { mutableIntStateOf(0) }
+
+    // Shows how long the video has been loading and in which stage, so a slow step is visible.
+    LaunchedEffect(mediaId, followCounterpart, hasFrame, failed) {
+        loadingSeconds = 0
+        while (!hasFrame && !failed) {
+            delay(1_000L)
+            loadingSeconds += 1
+        }
+    }
 
     DisposableEffect(stream, isForeground) {
         val resolved = stream
@@ -158,6 +167,9 @@ fun VideoLayer(
                     DefaultLoadControl
                         .Builder()
                         .setBufferDurationsMs(2_000, 15_000, 500, 1_500)
+                        // Hard cap so a high-bitrate stream can never exhaust the heap.
+                        .setTargetBufferBytes(8 * 1024 * 1024)
+                        .setPrioritizeTimeOverSizeThresholds(false)
                         .build(),
                 ).build()
                 .apply {
@@ -296,11 +308,25 @@ fun VideoLayer(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.Center),
         ) {
-            CircularProgressIndicator(
-                strokeWidth = 3.dp,
-                color = Color.White,
-                modifier = Modifier.size(36.dp),
-            )
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(
+                    strokeWidth = 3.dp,
+                    color = Color.White,
+                    modifier = Modifier.size(36.dp),
+                )
+                if (loadingSeconds >= 2) {
+                    Text(
+                        text = (if (stream == null) "Finding video " else "Buffering ") + "${loadingSeconds}s",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier =
+                            Modifier
+                                .padding(top = 8.dp)
+                                .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(6.dp))
+                                .padding(horizontal = 8.dp, vertical = 3.dp),
+                    )
+                }
+            }
         }
 
         AnimatedVisibility(

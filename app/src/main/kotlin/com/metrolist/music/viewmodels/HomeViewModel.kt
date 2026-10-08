@@ -57,6 +57,8 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -477,13 +479,17 @@ class HomeViewModel @Inject constructor(
         val newAlbums = java.util.Collections.synchronizedList(mutableListOf<AlbumItem>())
         val similarArtists = java.util.Collections.synchronizedList(mutableListOf<ArtistItem>())
         var globalNewReleases: List<AlbumItem> = emptyList()
+        // Each response is a large JSON document; parsing many at once can exhaust the heap.
+        val permits = Semaphore(2)
 
         coroutineScope {
             recentSongs.shuffled().take(5).forEachIndexed { index, seed ->
                 launch(Dispatchers.IO) {
-                    val endpoint = YouTube.next(WatchEndpoint(videoId = seed.id)).getOrNull()?.relatedEndpoint
-                        ?: return@launch
-                    val page = YouTube.related(endpoint).getOrNull() ?: return@launch
+                    val page =
+                        permits.withPermit {
+                            val endpoint = YouTube.next(WatchEndpoint(videoId = seed.id)).getOrNull()?.relatedEndpoint
+                            endpoint?.let { YouTube.related(it).getOrNull() }
+                        } ?: return@launch
                     val songs = page.songs.filter(::keep)
                     freshPicks.addAll(songs)
                     if (index < 3 && songs.size >= 5) {
@@ -503,7 +509,7 @@ class HomeViewModel @Inject constructor(
 
             topArtists.shuffled().take(6).forEach { seed ->
                 launch(Dispatchers.IO) {
-                    YouTube.artist(seed.id).onSuccess { page ->
+                    permits.withPermit { YouTube.artist(seed.id) }.onSuccess { page ->
                         page.sections.forEach { section ->
                             newAlbums.addAll(
                                 section.items.filterIsInstance<AlbumItem>().filter { (it.year ?: 0) >= minYear },
@@ -517,7 +523,7 @@ class HomeViewModel @Inject constructor(
             }
 
             launch(Dispatchers.IO) {
-                globalNewReleases = YouTube.explore().getOrNull()?.newReleaseAlbums.orEmpty()
+                globalNewReleases = permits.withPermit { YouTube.explore() }.getOrNull()?.newReleaseAlbums.orEmpty()
             }
         }
 

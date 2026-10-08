@@ -7,7 +7,11 @@ package com.metrolist.music.utils
 
 import android.content.Context
 import android.net.ConnectivityManager
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.metrolist.innertube.YouTube
+import com.metrolist.music.constants.VideoQuality
+import com.metrolist.music.constants.VideoQualityKey
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
@@ -22,7 +26,7 @@ import java.util.concurrent.ConcurrentHashMap
  * stream extraction) for a track it has already seen:
  *  - resolved stream URLs are cached in memory until shortly before they expire,
  *  - the song -> music-video id pairing is remembered on disk, so it survives app restarts,
- *  - the service can [prefetch] the current track in the background before the player is opened.
+ *  - the service can [prefetch] the current and next track before the player is even opened.
  */
 object VideoStreamCache {
     class Resolved(
@@ -44,19 +48,47 @@ object VideoStreamCache {
     private val entries = LinkedHashMap<String, Resolved>()
     private val inflight = ConcurrentHashMap<String, Deferred<Result<Resolved>>>()
 
+    /** The user's fixed height cap, or 0 when set to Auto. */
+    private fun fixedHeight(context: Context): Int {
+        val name = context.dataStore.get(VideoQualityKey, VideoQuality.AUTO.name)
+        return VideoQuality.values().firstOrNull { it.name == name }?.maxHeight ?: 0
+    }
+
+    /**
+     * Height to request. A fixed setting wins; in Auto it follows the measured connection speed
+     * (the same estimate ExoPlayer keeps for the audio), capped at 480p on metered networks.
+     */
+    @androidx.annotation.OptIn(UnstableApi::class)
+    fun maxHeightFor(context: Context): Int {
+        val fixed = fixedHeight(context)
+        if (fixed > 0) return fixed
+        val appContext = context.applicationContext
+        val bitsPerSecond = DefaultBandwidthMeter.getSingletonInstance(appContext).bandwidthEstimate
+        val bySpeed =
+            when {
+                bitsPerSecond < 2_500_000L -> 360
+                bitsPerSecond < 5_000_000L -> 480
+                bitsPerSecond < 10_000_000L -> 720
+                else -> 1080
+            }
+        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        return if (connectivityManager.isActiveNetworkMetered) minOf(bySpeed, 480) else bySpeed
+    }
+
+    // Auto shares one cache slot so a changing speed estimate never causes a cache miss;
+    // a fixed quality gets its own slot.
     private fun key(
+        context: Context,
         mediaId: String,
         followCounterpart: Boolean,
-    ) = "$mediaId|$followCounterpart"
-
-    /** Short start-up, little data: 360p on metered networks, 480p otherwise. */
-    fun defaultMaxHeight(connectivityManager: ConnectivityManager): Int = if (connectivityManager.isActiveNetworkMetered) 360 else 480
+    ) = "$mediaId|$followCounterpart|${fixedHeight(context)}"
 
     fun peek(
+        context: Context,
         mediaId: String,
         followCounterpart: Boolean,
     ): Resolved? {
-        val k = key(mediaId, followCounterpart)
+        val k = key(context, mediaId, followCounterpart)
         return synchronized(entries) {
             val entry = entries[k]
             if (entry != null && entry.expiresAtMs <= System.currentTimeMillis()) {
@@ -69,60 +101,66 @@ object VideoStreamCache {
     }
 
     fun invalidate(
+        context: Context,
         mediaId: String,
         followCounterpart: Boolean,
     ) {
-        synchronized(entries) { entries.remove(key(mediaId, followCounterpart)) }
+        val k = key(context, mediaId, followCounterpart)
+        synchronized(entries) { entries.remove(k) }
     }
 
     suspend fun resolve(
         context: Context,
         mediaId: String,
         followCounterpart: Boolean,
-        maxHeight: Int,
         allowHls: Boolean,
     ): Result<Resolved> {
-        peek(mediaId, followCounterpart)?.let { return Result.success(it) }
-        val k = key(mediaId, followCounterpart)
+        peek(context, mediaId, followCounterpart)?.let { return Result.success(it) }
         val appContext = context.applicationContext
+        val k = key(appContext, mediaId, followCounterpart)
         val deferred =
             inflight.computeIfAbsent(k) {
                 scope
-                    .async { doResolve(appContext, mediaId, followCounterpart, maxHeight, allowHls) }
+                    .async { doResolve(appContext, k, mediaId, followCounterpart, allowHls) }
                     .also { d -> d.invokeOnCompletion { inflight.remove(k) } }
             }
         return deferred.await()
     }
 
-    /** Fire-and-forget warm-up, e.g. when a new track starts playing. */
+    /** Fire-and-forget warm-up, e.g. when a track starts playing or is next in the queue. */
     fun prefetch(
         context: Context,
         mediaId: String,
         followCounterpart: Boolean,
     ) {
-        if (peek(mediaId, followCounterpart) != null) return
         val appContext = context.applicationContext
-        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        scope.launch {
-            resolve(appContext, mediaId, followCounterpart, defaultMaxHeight(connectivityManager), allowHls = false)
-        }
+        if (peek(appContext, mediaId, followCounterpart) != null) return
+        scope.launch { resolve(appContext, mediaId, followCounterpart, allowHls = false) }
     }
 
     private suspend fun doResolve(
         context: Context,
+        cacheKey: String,
         mediaId: String,
         followCounterpart: Boolean,
-        maxHeight: Int,
         allowHls: Boolean,
     ): Result<Resolved> {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         // An audio-only track's own video is just artwork; its music video is the paired counterpart.
         val videoId = if (followCounterpart) counterpartId(context, mediaId) ?: mediaId else mediaId
-        val result = InnerTubeXPlayer.videoStreamForPlayback(videoId, maxHeight, connectivityManager, allowHls)
-        val stream = result.getOrNull() ?: return Result.failure(result.exceptionOrNull() ?: IllegalStateException("No video stream"))
+        val result =
+            InnerTubeXPlayer.videoStreamForPlayback(
+                videoId = videoId,
+                maxVideoHeight = maxHeightFor(context),
+                connectivityManager = connectivityManager,
+                allowHls = allowHls,
+            )
+        val stream =
+            result.getOrNull()
+                ?: return Result.failure(result.exceptionOrNull() ?: IllegalStateException("No video stream"))
         val resolved = Resolved(videoId, stream, expiryOf(stream.url))
         synchronized(entries) {
-            entries[key(mediaId, followCounterpart)] = resolved
+            entries[cacheKey] = resolved
             while (entries.size > MAX_ENTRIES) entries.remove(entries.keys.first())
         }
         return Result.success(resolved)

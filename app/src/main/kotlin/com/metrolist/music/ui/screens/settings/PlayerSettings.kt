@@ -41,6 +41,8 @@ import com.metrolist.music.constants.AudioOffload
 import com.metrolist.music.constants.AudioTrackPlaybackParamsKey
 import com.metrolist.music.constants.AudioQuality
 import com.metrolist.music.constants.AudioQualityKey
+import com.metrolist.music.constants.VideoQuality
+import com.metrolist.music.constants.VideoQualityKey
 import com.metrolist.music.constants.AutoDownloadOnLikeKey
 import com.metrolist.music.constants.CrossfadeDurationKey
 import com.metrolist.music.constants.CrossfadeEnabledKey
@@ -98,6 +100,10 @@ fun PlayerSettings(
     val (audioQuality, onAudioQualityChange) = rememberEnumPreference(
         AudioQualityKey,
         defaultValue = AudioQuality.AUTO
+    )
+    val (videoQuality, onVideoQualityChange) = rememberEnumPreference(
+        VideoQualityKey,
+        defaultValue = VideoQuality.AUTO
     )
     val (crossfadeEnabled, onCrossfadeEnabledChange) = rememberPreference(
         CrossfadeEnabledKey,
@@ -227,8 +233,28 @@ fun PlayerSettings(
         mutableStateOf(false)
     }
 
+    var showVideoQualityDialog by remember {
+        mutableStateOf(false)
+    }
+
     var showLoudnessLevelDialog by remember {
         mutableStateOf(false)
+    }
+
+    if (showVideoQualityDialog) {
+        EnumDialog(
+            onDismiss = { showVideoQualityDialog = false },
+            onSelect = {
+                onVideoQualityChange(it)
+                showVideoQualityDialog = false
+            },
+            title = stringResource(R.string.video_quality),
+            current = videoQuality,
+            values = VideoQuality.values().toList(),
+            valueText = {
+                if (it == VideoQuality.AUTO) stringResource(R.string.video_quality_auto) else "${it.maxHeight}p"
+            }
+        )
     }
 
     if (showAudioQualityDialog) {
@@ -299,6 +325,20 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { showAudioQualityDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.videocam),
+                    title = { Text(stringResource(R.string.video_quality)) },
+                    description = {
+                        Text(
+                            if (videoQuality == VideoQuality.AUTO) {
+                                stringResource(R.string.video_quality_auto_desc)
+                            } else {
+                                "${videoQuality.maxHeight}p"
+                            }
+                        )
+                    },
+                    onClick = { showVideoQualityDialog = true }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),

@@ -1,5 +1,6 @@
 package com.metrolist.innertube.pages
 
+import com.metrolist.innertube.models.hasVerifiedBadge
 import com.metrolist.innertube.models.Album
 import com.metrolist.innertube.models.AlbumItem
 import com.metrolist.innertube.models.Artist
@@ -163,6 +164,7 @@ object SearchPage {
             }
             renderer.isArtist -> {
                 ArtistItem(
+                    isVerified = renderer.badges.hasVerifiedBadge(),
                     id = renderer.navigationEndpoint?.browseEndpoint?.browseId ?: return null,
                     title =
                         renderer.flexColumns

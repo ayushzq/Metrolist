@@ -119,6 +119,19 @@ enum class AudioQuality {
     HIGH,
 }
 
+val VideoQualityKey = stringPreferencesKey("videoQuality")
+
+/** AUTO picks the height from the measured connection speed; the others are a fixed cap. */
+enum class VideoQuality(
+    val maxHeight: Int,
+) {
+    AUTO(0),
+    P360(360),
+    P480(480),
+    P720(720),
+    P1080(1080),
+}
+
 val AudioOffload = booleanPreferencesKey("enableOffload")
 val AudioTrackPlaybackParamsKey = booleanPreferencesKey("audioTrackPlaybackParams")
 

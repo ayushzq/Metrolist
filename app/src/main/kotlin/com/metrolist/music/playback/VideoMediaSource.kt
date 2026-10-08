@@ -133,14 +133,20 @@ internal class ChunkedDataSource(
     }
 }
 
-@UnstableApi
-internal fun buildVideoMediaSource(stream: InnerTubeXPlayer.VideoStreamData): MediaSource {
-    val client =
-        OkHttpClient
+/** One client for all video streams; a new client per stream leaked connections and TLS buffers. */
+private object VideoHttp {
+    private var client: OkHttpClient? = null
+    private var clientProxy: java.net.Proxy? = null
+
+    @Synchronized
+    fun client(): OkHttpClient {
+        val proxy = YouTube.proxy
+        client?.takeIf { clientProxy == proxy }?.let { return it }
+        return OkHttpClient
             .Builder()
             .connectTimeout(6, TimeUnit.SECONDS)
             .readTimeout(10, TimeUnit.SECONDS)
-            .proxy(YouTube.proxy)
+            .proxy(proxy)
             .proxyAuthenticator { _, response ->
                 YouTube.proxyAuth?.let { auth ->
                     response.request
@@ -149,6 +155,16 @@ internal fun buildVideoMediaSource(stream: InnerTubeXPlayer.VideoStreamData): Me
                         .build()
                 } ?: response.request
             }.build()
+            .also {
+                client = it
+                clientProxy = proxy
+            }
+    }
+}
+
+@UnstableApi
+internal fun buildVideoMediaSource(stream: InnerTubeXPlayer.VideoStreamData): MediaSource {
+    val client = VideoHttp.client()
 
     val httpFactory =
         OkHttpDataSource

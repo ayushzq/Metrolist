@@ -89,6 +89,7 @@ data class ArtistItem(
     val shuffleEndpoint: WatchEndpoint?,
     val radioEndpoint: WatchEndpoint?,
     val isProfile: Boolean = false,
+    val isVerified: Boolean = false,
 ) : YTItem() {
     override val explicit: Boolean
         get() = false
