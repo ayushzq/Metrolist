@@ -84,6 +84,7 @@ import com.metrolist.music.constants.PlayerBackgroundStyle
 import com.metrolist.music.constants.PlayerBackgroundStyleKey
 import com.metrolist.music.constants.PlayerButtonsStyle
 import com.metrolist.music.constants.PlayerButtonsStyleKey
+import com.metrolist.music.constants.IosGlassUiKey
 import com.metrolist.music.constants.PureBlackMiniPlayerKey
 import com.metrolist.music.constants.RespectAgentPositioningKey
 import com.metrolist.music.constants.SelectedThemeColorKey
@@ -1017,6 +1018,33 @@ fun AppearanceSettings(
                         ),
                     )
                 },
+        )
+
+        Spacer(modifier = Modifier.height(27.dp))
+
+        val (iosGlassUi, onIosGlassUiChange) =
+            rememberPreference(
+                IosGlassUiKey,
+                defaultValue = false,
+            )
+
+        Material3SettingsGroup(
+            title = stringResource(id = R.string.ios_glass_ui_group),
+            items =
+                listOf(
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.nav_bar),
+                        title = { Text(stringResource(R.string.ios_glass_ui)) },
+                        description = { Text(stringResource(R.string.ios_glass_ui_desc)) },
+                        trailingContent = {
+                            Switch(
+                                checked = iosGlassUi,
+                                onCheckedChange = onIosGlassUiChange,
+                            )
+                        },
+                        onClick = { onIosGlassUiChange(!iosGlassUi) },
+                    ),
+                ),
         )
 
         Spacer(modifier = Modifier.height(27.dp))

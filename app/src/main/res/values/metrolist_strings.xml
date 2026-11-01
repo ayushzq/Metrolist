@@ -1015,4 +1015,7 @@
     <string name="video_quality">Video quality</string>
     <string name="video_quality_auto">Auto</string>
     <string name="video_quality_auto_desc">Auto (matches your connection speed)</string>
+    <string name="ios_glass_ui_group">iOS style</string>
+    <string name="ios_glass_ui">iOS glass UI</string>
+    <string name="ios_glass_ui_desc">Frosted glass bars, blurred Now Playing background and bouncy press animations. Turn off to use the classic look.</string>
 </resources>

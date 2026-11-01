@@ -145,6 +145,7 @@ import com.metrolist.music.constants.HidePlayerThumbnailKey
 import com.metrolist.music.constants.HideStatusBarOnFullscreenKey
 import com.metrolist.music.constants.KeepScreenOn
 import com.metrolist.music.constants.PlayerBackgroundStyle
+import com.metrolist.music.constants.IosGlassUiKey
 import com.metrolist.music.constants.PlayerBackgroundStyleKey
 import com.metrolist.music.constants.PlayerButtonsStyle
 import com.metrolist.music.constants.PlayerButtonsStyleKey
@@ -234,10 +235,18 @@ fun BottomSheetPlayer(
         mutableStateOf(false)
     }
 
-    val playerBackground by rememberEnumPreference(
+    val storedPlayerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
         defaultValue = PlayerBackgroundStyle.DEFAULT,
     )
+    val iosGlassUi by rememberPreference(IosGlassUiKey, defaultValue = false)
+    // iOS glass UI uses the blurred album-art background unless the user picked another style
+    val playerBackground =
+        if (iosGlassUi && storedPlayerBackground == PlayerBackgroundStyle.DEFAULT) {
+            PlayerBackgroundStyle.BLUR
+        } else {
+            storedPlayerBackground
+        }
     val playerButtonsStyle by rememberEnumPreference(
         key = PlayerButtonsStyleKey,
         defaultValue = PlayerButtonsStyle.DEFAULT,
@@ -326,7 +335,10 @@ fun BottomSheetPlayer(
     val canSkipNext by playerConnection.canSkipNext.collectAsStateWithLifecycle()
     val isMuted by playerConnection.isMuted.collectAsStateWithLifecycle()
 
-    val sliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
+    val storedSliderStyle by rememberEnumPreference(SliderStyleKey, SliderStyle.DEFAULT)
+    // iOS glass UI uses the thick capsule track unless the user picked another style
+    val sliderStyle =
+        if (iosGlassUi && storedSliderStyle == SliderStyle.DEFAULT) SliderStyle.SLIM else storedSliderStyle
     val squigglySlider by rememberPreference(SquigglySliderKey, defaultValue = false)
 
     // Listen Together state (reactive)
