@@ -5,9 +5,31 @@
 
 package com.metrolist.music.ui.component
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -141,16 +163,28 @@ fun AppNavigationBar(
     onHomeLongHold: (() -> Unit)? = null,
     glassState: HazeState? = null,
 ) {
-    val isGlass = glassState != null
-    val baseContainerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-    val containerColor = if (isGlass) Color.Transparent else baseContainerColor
-    val glassTint = baseContainerColor.copy(alpha = 0.6f)
+    if (glassState != null) {
+        GlassNavigationBar(
+            navigationItems = navigationItems,
+            currentRoute = currentRoute,
+            onItemClick = onItemClick,
+            glassState = glassState,
+            modifier = modifier,
+            pureBlack = pureBlack,
+            slimNav = slimNav,
+            onSearchLongClick = onSearchLongClick,
+            onHomeLongHold = onHomeLongHold,
+        )
+        return
+    }
+
+    val containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
     val contentColor = if (pureBlack) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
     val haptics = LocalHapticFeedback.current
     val viewConfiguration = LocalViewConfiguration.current
 
     NavigationBar(
-        modifier = modifier.iosGlassBar(glassState, glassTint),
+        modifier = modifier,
         containerColor = containerColor,
         contentColor = contentColor
     ) {
@@ -205,8 +239,7 @@ fun AppNavigationBar(
                 icon = {
                     Icon(
                         painter = painterResource(id = iconRes),
-                        contentDescription = stringResource(screen.titleId),
-                        modifier = if (isGlass) Modifier.iosPressScale(interactionSource) else Modifier
+                        contentDescription = stringResource(screen.titleId)
                     )
                 },
                 label = if (!slimNav) {
@@ -219,6 +252,127 @@ fun AppNavigationBar(
                     }
                 } else null
             )
+        }
+    }
+}
+
+
+/**
+ * Apple Music style floating capsule tab bar: frosted glass, always-visible labels,
+ * accent-coloured selected item (no indicator pill) and bouncy press feedback.
+ */
+@Composable
+private fun GlassNavigationBar(
+    navigationItems: List<Screens>,
+    currentRoute: String?,
+    onItemClick: (Screens, Boolean) -> Unit,
+    glassState: HazeState,
+    modifier: Modifier = Modifier,
+    pureBlack: Boolean = false,
+    slimNav: Boolean = false,
+    onSearchLongClick: (() -> Unit)? = null,
+    onHomeLongHold: (() -> Unit)? = null,
+) {
+    val haptics = LocalHapticFeedback.current
+    val viewConfiguration = LocalViewConfiguration.current
+    val baseColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
+    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val accent = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF)
+    val idleColor = MaterialTheme.colorScheme.onSurface
+    val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .padding(bottom = bottomInset),
+    ) {
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 20.dp, vertical = 8.dp)
+                    .clip(CircleShape)
+                    .iosGlassBar(glassState, baseColor.copy(alpha = 0.72f))
+                    .border(0.5.dp, Color.White.copy(alpha = 0.14f), CircleShape),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            navigationItems.forEach { screen ->
+                val isSelected = remember(currentRoute, screen.route) {
+                    isRouteSelected(currentRoute, screen.route, navigationItems)
+                }
+                val currentIsSelected by rememberUpdatedState(isSelected)
+                val iconRes = if (isSelected) screen.iconIdActive else screen.iconIdInactive
+
+                val isSearchItem = screen == Screens.Search && onSearchLongClick != null
+                val isHomeHoldItem = screen == Screens.Home && onHomeLongHold != null
+                val interactionSource = remember { MutableInteractionSource() }
+
+                if (isSearchItem || isHomeHoldItem) {
+                    LaunchedEffect(interactionSource) {
+                        var isLongClick = false
+                        interactionSource.interactions.collectLatest { interaction ->
+                            when (interaction) {
+                                is PressInteraction.Press -> {
+                                    isLongClick = false
+                                    delay(if (isHomeHoldItem) 15_000L else viewConfiguration.longPressTimeoutMillis)
+                                    isLongClick = true
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    if (isHomeHoldItem) onHomeLongHold?.invoke() else onSearchLongClick?.invoke()
+                                }
+                                is PressInteraction.Release -> {
+                                    if (!isLongClick) {
+                                        onItemClick(screen, currentIsSelected)
+                                    }
+                                }
+                                is PressInteraction.Cancel -> {
+                                    isLongClick = false
+                                }
+                            }
+                        }
+                    }
+                }
+
+                val tint by animateColorAsState(
+                    targetValue = if (isSelected) accent else idleColor,
+                    label = "glassNavTint",
+                )
+
+                Column(
+                    modifier =
+                        Modifier
+                            .weight(1f)
+                            .fillMaxHeight()
+                            .iosPressScale(interactionSource)
+                            .clickable(
+                                interactionSource = interactionSource,
+                                indication = null,
+                            ) {
+                                if (!isSearchItem && !isHomeHoldItem) {
+                                    onItemClick(screen, currentIsSelected)
+                                }
+                            },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(id = iconRes),
+                        contentDescription = stringResource(screen.titleId),
+                        tint = tint,
+                        modifier = Modifier.size(26.dp),
+                    )
+                    if (!slimNav) {
+                        Text(
+                            text = stringResource(screen.titleId),
+                            color = tint,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
         }
     }
 }

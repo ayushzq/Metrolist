@@ -146,6 +146,7 @@ import com.metrolist.music.constants.DynamicThemeKey
 import com.metrolist.music.constants.EnableHighRefreshRateKey
 import com.metrolist.music.constants.EnableLandscapeScalingKey
 import com.metrolist.music.constants.ExperimentalLyricsKey
+import androidx.compose.ui.text.font.FontWeight
 import com.metrolist.music.constants.ForceBottomNavBarKey
 import com.metrolist.music.constants.IosGlassUiKey
 import com.metrolist.music.constants.LastSeenVersionKey
@@ -1072,7 +1073,12 @@ class MainActivity : FragmentActivity() {
                                         title = {
                                             Text(
                                                 text = currentTitleRes?.let { stringResource(it) } ?: "",
-                                                style = MaterialTheme.typography.titleLarge,
+                                                style =
+                                                    if (glassState != null) {
+                                                        MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold)
+                                                    } else {
+                                                        MaterialTheme.typography.titleLarge
+                                                    },
                                             )
                                         },
                                         actions = {
