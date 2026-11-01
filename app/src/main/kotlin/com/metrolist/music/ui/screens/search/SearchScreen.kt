@@ -5,7 +5,16 @@
 
 package com.metrolist.music.ui.screens.search
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.unit.dp
+import com.metrolist.music.ui.component.LocalIosStyle
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -180,10 +189,30 @@ fun SearchScreen(
         topBar = {
             TopAppBar(
                 title = {
+                    val iosStyle = LocalIosStyle.current
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier =
+                            if (iosStyle) {
+                                Modifier
+                                    .fillMaxWidth()
+                                    .height(44.dp)
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceContainerHigh)
+                                    .padding(start = 12.dp)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            },
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        if (iosStyle) {
+                            Icon(
+                                painter = painterResource(R.drawable.search),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Spacer(Modifier.width(8.dp))
+                        }
                         BasicTextField(
                             value = query,
                             onValueChange = { query = it },
@@ -273,7 +302,12 @@ fun SearchScreen(
                 },
                 colors =
                     TopAppBarDefaults.topAppBarColors(
-                        containerColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer,
+                        containerColor =
+                            if (pureBlack || LocalIosStyle.current) {
+                                MaterialTheme.colorScheme.background
+                            } else {
+                                MaterialTheme.colorScheme.surfaceContainer
+                            },
                     ),
             )
         },

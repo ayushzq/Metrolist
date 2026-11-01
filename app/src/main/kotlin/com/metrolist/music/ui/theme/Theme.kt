@@ -9,7 +9,10 @@ import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
+import androidx.compose.material3.Typography
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
@@ -19,6 +22,8 @@ import androidx.compose.runtime.saveable.SaverScope
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.palette.graphics.Palette
 import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
@@ -32,6 +37,7 @@ fun MetrolistTheme(
     darkTheme: Boolean = isSystemInDarkTheme(),
     pureBlack: Boolean = false,
     themeColor: Color = DefaultThemeColor,
+    iosStyle: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -53,20 +59,104 @@ fun MetrolistTheme(
     }
 
     // Apply pureBlack modification if needed, similar to original logic
-    val colorScheme = remember(baseColorScheme, pureBlack, darkTheme) {
-        if (darkTheme && pureBlack) {
-            baseColorScheme.pureBlack(true)
-        } else {
-            baseColorScheme
-        }
+    val colorScheme = remember(baseColorScheme, pureBlack, darkTheme, iosStyle) {
+        val scheme =
+            if (darkTheme && pureBlack) {
+                baseColorScheme.pureBlack(true)
+            } else {
+                baseColorScheme
+            }
+        if (iosStyle) iosColorScheme(scheme, darkTheme) else scheme
     }
 
     // Use standard MaterialTheme instead of MaterialExpressiveTheme
-    MaterialTheme(
-        colorScheme = colorScheme,
-        content = content,
-    )
+    if (iosStyle) {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            shapes = IosShapes,
+            typography = IosTypography,
+            content = content,
+        )
+    } else {
+        MaterialTheme(
+            colorScheme = colorScheme,
+            content = content,
+        )
+    }
 }
+
+/** Apple Music inspired palette: true black / system grays with iOS blue accent. */
+fun iosColorScheme(
+    base: ColorScheme,
+    darkTheme: Boolean,
+): ColorScheme =
+    if (darkTheme) {
+        base.copy(
+            primary = Color(0xFF0A84FF),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF0A3D75),
+            onPrimaryContainer = Color(0xFFD6E8FF),
+            secondaryContainer = Color(0xFF2C2C2E),
+            onSecondaryContainer = Color.White,
+            background = Color.Black,
+            onBackground = Color.White,
+            surface = Color.Black,
+            onSurface = Color.White,
+            surfaceVariant = Color(0xFF2C2C2E),
+            onSurfaceVariant = Color(0xFF8E8E93),
+            surfaceTint = Color.Transparent,
+            surfaceContainerLowest = Color.Black,
+            surfaceContainerLow = Color(0xFF0F0F10),
+            surfaceContainer = Color(0xFF1C1C1E),
+            surfaceContainerHigh = Color(0xFF2C2C2E),
+            surfaceContainerHighest = Color(0xFF3A3A3C),
+            outline = Color(0xFF48484A),
+            outlineVariant = Color(0xFF38383A),
+        )
+    } else {
+        base.copy(
+            primary = Color(0xFF007AFF),
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFD6E8FF),
+            onPrimaryContainer = Color(0xFF0A3D75),
+            secondaryContainer = Color(0xFFE5E5EA),
+            onSecondaryContainer = Color.Black,
+            background = Color.White,
+            onBackground = Color.Black,
+            surface = Color.White,
+            onSurface = Color.Black,
+            surfaceVariant = Color(0xFFE5E5EA),
+            onSurfaceVariant = Color(0xFF6C6C70),
+            surfaceTint = Color.Transparent,
+            surfaceContainerLowest = Color.White,
+            surfaceContainerLow = Color(0xFFF7F7FA),
+            surfaceContainer = Color(0xFFF2F2F7),
+            surfaceContainerHigh = Color(0xFFE5E5EA),
+            surfaceContainerHighest = Color(0xFFD1D1D6),
+            outline = Color(0xFFC7C7CC),
+            outlineVariant = Color(0xFFD1D1D6),
+        )
+    }
+
+private val IosShapes =
+    Shapes(
+        extraSmall = RoundedCornerShape(6.dp),
+        small = RoundedCornerShape(percent = 50),
+        medium = RoundedCornerShape(14.dp),
+        large = RoundedCornerShape(18.dp),
+        extraLarge = RoundedCornerShape(24.dp),
+    )
+
+private val IosTypography =
+    Typography().let { t ->
+        t.copy(
+            headlineLarge = t.headlineLarge.copy(fontWeight = FontWeight.Bold),
+            headlineMedium = t.headlineMedium.copy(fontWeight = FontWeight.Bold),
+            headlineSmall = t.headlineSmall.copy(fontWeight = FontWeight.Bold),
+            titleLarge = t.titleLarge.copy(fontWeight = FontWeight.Bold),
+            titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        )
+    }
 
 fun Bitmap.extractThemeColor(): Color = Color(
     Palette.from(this)

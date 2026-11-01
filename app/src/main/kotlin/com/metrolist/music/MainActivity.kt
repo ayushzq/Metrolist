@@ -184,6 +184,7 @@ import com.metrolist.music.playback.queues.YouTubeQueue
 import com.metrolist.music.ui.component.AccountSettingsDialog
 import com.metrolist.music.ui.component.AppNavigationBar
 import com.metrolist.music.ui.component.AppNavigationRail
+import com.metrolist.music.ui.component.LocalIosStyle
 import com.metrolist.music.ui.component.iosGlassBar
 import com.metrolist.music.ui.component.iosGlassSource
 import dev.chrisbanes.haze.HazeState
@@ -616,6 +617,7 @@ class MainActivity : FragmentActivity() {
         val enableLandscapeScaling by rememberPreference(EnableLandscapeScalingKey, defaultValue = false)
         val userDensityScale by rememberPreference(DensityScaleKey, defaultValue = 1f)
         val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
+        val iosGlassUi by rememberPreference(IosGlassUiKey, defaultValue = false)
         val pureBlack =
             remember(pureBlackEnabled, useDarkTheme) {
                 pureBlackEnabled && useDarkTheme
@@ -688,6 +690,7 @@ class MainActivity : FragmentActivity() {
             darkTheme = useDarkTheme,
             pureBlack = pureBlack,
             themeColor = themeColor,
+            iosStyle = iosGlassUi,
         ) {
             val currentDensity = LocalDensity.current
             val windowInfo = LocalWindowInfo.current
@@ -1036,7 +1039,6 @@ class MainActivity : FragmentActivity() {
                     }
 
                 val baseBg = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
-                val iosGlassUi by rememberPreference(IosGlassUiKey, defaultValue = false)
                 val hazeState = remember { HazeState() }
                 val glassState = if (iosGlassUi) hazeState else null
                 val glassTint = baseBg.copy(alpha = 0.6f)
@@ -1044,6 +1046,7 @@ class MainActivity : FragmentActivity() {
                 val artistNameAliases by ArtistNameAliases.aliases.collectAsStateWithLifecycle()
 
                 CompositionLocalProvider(
+                    LocalIosStyle provides iosGlassUi,
                     LocalDatabase provides database,
                     LocalNavController provides navController,
                     LocalContentColor provides if (pureBlack) Color.White else contentColorFor(MaterialTheme.colorScheme.surface),
