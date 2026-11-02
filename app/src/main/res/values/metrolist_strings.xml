@@ -1018,4 +1018,7 @@
     <string name="ios_glass_ui_group">iOS style</string>
     <string name="ios_glass_ui">iOS glass UI</string>
     <string name="ios_glass_ui_desc">Frosted glass bars, blurred Now Playing background and bouncy press animations. Turn off to use the classic look.</string>
+    <string name="recent_searches">Recent searches</string>
+    <string name="clear_all">Clear all</string>
+    <string name="video_tap_to_retry">Tap to retry</string>
 </resources>

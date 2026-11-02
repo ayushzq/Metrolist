@@ -12,7 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
+import com.metrolist.music.ui.component.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.res.painterResource

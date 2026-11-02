@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -372,6 +373,34 @@ fun OnlineSearchScreen(
                             .padding(vertical = 8.dp)
                             .animateItem(),
                 )
+            }
+        }
+
+        if (viewState.history.isNotEmpty()) {
+            item(key = "history_header") {
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 8.dp, top = 8.dp)
+                            .animateItem(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.recent_searches),
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextButton(
+                        onClick = {
+                            database.query {
+                                clearSearchHistory()
+                            }
+                        },
+                    ) {
+                        Text(text = stringResource(R.string.clear_all))
+                    }
+                }
             }
         }
 

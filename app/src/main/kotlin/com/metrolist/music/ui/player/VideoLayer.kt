@@ -9,9 +9,12 @@ import android.content.Context
 import android.net.ConnectivityManager
 import android.view.TextureView
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -32,11 +35,13 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -73,6 +78,10 @@ private const val SOFT_CORRECT_FACTOR = 0.05f
 private const val MAX_ATTEMPTS = 3
 private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
+// How long a prepared video player is kept alive after the app goes to the background, so coming
+// back shows the picture again almost instantly instead of resolving and buffering from scratch.
+private const val BACKGROUND_KEEP_ALIVE_MS = 60_000L
+
 /**
  * Plays the video track of [mediaId] muted on top of the artwork while the regular audio player
  * stays the single source of truth for position, play/pause and speed. Leaving the foreground
@@ -99,7 +108,20 @@ fun VideoLayer(
     var resolvedVideoId by remember(mediaId, followCounterpart) { mutableStateOf(cached?.videoId) }
     var attempt by remember(mediaId, followCounterpart) { mutableIntStateOf(0) }
     var failureDetail by remember(mediaId, followCounterpart) { mutableStateOf<String?>(null) }
+    var retryNonce by remember(mediaId, followCounterpart) { mutableIntStateOf(0) }
     val failed = failureDetail != null
+
+    // Keeps the prepared player alive for a short while in the background (see BACKGROUND_KEEP_ALIVE_MS).
+    val isForegroundState = rememberUpdatedState(isForeground)
+    var keepVideo by remember { mutableStateOf(true) }
+    LaunchedEffect(isForeground) {
+        if (isForeground) {
+            keepVideo = true
+        } else {
+            delay(BACKGROUND_KEEP_ALIVE_MS)
+            keepVideo = false
+        }
+    }
 
     // Each failure blacklists the client that served the bad stream, so the next attempt uses another
     // one. The last attempt also allows an HLS manifest. 403s additionally refresh the cipher tables.
@@ -120,7 +142,7 @@ fun VideoLayer(
         }
     }
 
-    LaunchedEffect(mediaId, followCounterpart, attempt) {
+    LaunchedEffect(mediaId, followCounterpart, attempt, retryNonce) {
         if (attempt > 0) stream = null
         VideoStreamCache
             .resolve(
@@ -151,9 +173,9 @@ fun VideoLayer(
         }
     }
 
-    DisposableEffect(stream, isForeground) {
+    DisposableEffect(stream, keepVideo) {
         val resolved = stream
-        if (resolved == null || !isForeground) {
+        if (resolved == null || !keepVideo) {
             videoPlayer = null
             hasFrame = false
             return@DisposableEffect onDispose {}
@@ -162,11 +184,11 @@ fun VideoLayer(
         val player =
             ExoPlayer
                 .Builder(context)
-                // Start as soon as ~0.5s is buffered; the video is muted and follows the audio anyway.
+                // Start as soon as ~0.25s is buffered; the video is muted and follows the audio anyway.
                 .setLoadControl(
                     DefaultLoadControl
                         .Builder()
-                        .setBufferDurationsMs(2_000, 15_000, 500, 1_500)
+                        .setBufferDurationsMs(2_000, 15_000, 250, 1_000)
                         // Hard cap so a high-bitrate stream can never exhaust the heap.
                         .setTargetBufferBytes(8 * 1024 * 1024)
                         .setPrioritizeTimeOverSizeThresholds(false)
@@ -253,9 +275,12 @@ fun VideoLayer(
             val baseSpeed = audioPlayer.playbackParameters.speed
             val drift = video.currentPosition - audioPlayer.currentPosition
 
-            video.playWhenReady = audioPlayer.playWhenReady && audioReady
+            val visible = isForegroundState.value
+            video.playWhenReady = visible && audioPlayer.playWhenReady && audioReady
 
-            if (audioReady && abs(drift) > HARD_SEEK_DRIFT_MS) {
+            // In the background the video stays paused and is not chased along (saves data);
+            // the first pass after returning re-syncs it with a hard seek.
+            if (visible && audioReady && abs(drift) > HARD_SEEK_DRIFT_MS) {
                 video.seekTo(audioPlayer.currentPosition)
             }
 
@@ -272,6 +297,12 @@ fun VideoLayer(
             delay(SYNC_INTERVAL_MS)
         }
     }
+
+    val videoAlpha by animateFloatAsState(
+        targetValue = if (hasFrame) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "videoFadeIn",
+    )
 
     Box(modifier = modifier.clipToBounds(), contentAlignment = Alignment.Center) {
         val player = videoPlayer
@@ -297,7 +328,7 @@ fun VideoLayer(
                     modifier =
                         Modifier
                             .requiredSize(width.dp, height.dp)
-                            .alpha(if (hasFrame) 1f else 0f),
+                            .alpha(videoAlpha),
                 )
             }
         }
@@ -336,13 +367,24 @@ fun VideoLayer(
             modifier = Modifier.align(Alignment.BottomCenter).padding(12.dp),
         ) {
             Text(
-                text = stringResource(R.string.video_unavailable) + (failureDetail?.let { "\n($it)" } ?: ""),
+                text =
+                    stringResource(R.string.video_unavailable) +
+                        (failureDetail?.let { "\n($it)" } ?: "") +
+                        "\n" + stringResource(R.string.video_tap_to_retry),
                 style = MaterialTheme.typography.labelMedium,
                 color = Color.White,
                 modifier =
                     Modifier
-                        .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(8.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Color.Black.copy(alpha = 0.65f))
+                        .clickable {
+                            VideoStreamCache.invalidate(context, mediaId, followCounterpart)
+                            stream = null
+                            resolvedVideoId = null
+                            failureDetail = null
+                            attempt = 0
+                            retryNonce += 1
+                        }.padding(horizontal = 10.dp, vertical = 6.dp),
             )
         }
     }

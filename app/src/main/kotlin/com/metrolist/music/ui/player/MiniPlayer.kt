@@ -82,6 +82,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import coil3.compose.AsyncImage
+import com.metrolist.music.ui.component.LocalIosStyle
 import com.metrolist.music.LocalDatabase
 import com.metrolist.music.LocalListenTogetherManager
 import com.metrolist.music.LocalPlayerConnection
@@ -151,7 +152,13 @@ fun MiniPlayer(
     // Create stable progress state - doesn't cause recomposition on position changes
     val progressState = remember { ProgressState(positionState, durationState) }
 
-    if (useNewMiniPlayerDesign) {
+    if (LocalIosStyle.current) {
+        IosMiniPlayer(
+            progressState = progressState,
+            modifier = modifier,
+            onClick = onClick,
+        )
+    } else if (useNewMiniPlayerDesign) {
         NewMiniPlayer(
             progressState = progressState,
             modifier = modifier,

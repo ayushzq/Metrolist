@@ -748,12 +748,15 @@ class MainActivity : FragmentActivity() {
 
                 val (listenTogetherInTopBar) = rememberPreference(ListenTogetherInTopBarKey, defaultValue = true)
                 val navigationItems =
-                    remember(listenTogetherInTopBar) {
-                        if (listenTogetherInTopBar) {
-                            Screens.MainScreens.filter { it != Screens.ListenTogether }
-                        } else {
-                            Screens.MainScreens
-                        }
+                    remember(listenTogetherInTopBar, iosGlassUi) {
+                        val baseItems =
+                            if (listenTogetherInTopBar) {
+                                Screens.MainScreens.filter { it != Screens.ListenTogether }
+                            } else {
+                                Screens.MainScreens
+                            }
+                        // iOS style: History and Settings live in the tab bar like Apple Music's 5 tabs
+                        if (iosGlassUi) baseItems + listOf(Screens.History, Screens.Settings) else baseItems
                     }
                 val routeIndexMap = remember(navigationItems) {
                     navigationItems.mapIndexed { i, s -> s.route to i }.toMap()
@@ -1085,7 +1088,7 @@ class MainActivity : FragmentActivity() {
                                             )
                                         },
                                         actions = {
-                                            if (showHistoryButton) {
+                                            if (showHistoryButton && !iosGlassUi) {
                                                 IconButton(onClick = { navController.navigate("history") }) {
                                                     Icon(
                                                         painter = painterResource(R.drawable.history),
