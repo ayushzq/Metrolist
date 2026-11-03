@@ -108,6 +108,7 @@ import com.metrolist.music.viewmodels.OnlinePlaylistViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.metrolist.music.ui.component.LocalIosStyle
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -498,6 +499,7 @@ private fun OnlinePlaylistHeader(
     val database = LocalDatabase.current
     val menuState = LocalMenuState.current
     val syncUtils = LocalSyncUtils.current
+    val iosStyle = LocalIosStyle.current
 
     Column(
         modifier =
@@ -509,13 +511,18 @@ private fun OnlinePlaylistHeader(
         Surface(
             modifier =
                 Modifier
-                    .size(240.dp)
+                    .size(if (iosStyle) 280.dp else 240.dp)
                     .shadow(
-                        elevation = 24.dp,
-                        shape = RoundedCornerShape(3.dp),
-                        spotColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+                        elevation = if (iosStyle) 16.dp else 24.dp,
+                        shape = RoundedCornerShape(if (iosStyle) 12.dp else 3.dp),
+                        spotColor =
+                            if (iosStyle) {
+                                Color.Black.copy(alpha = 0.5f)
+                            } else {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            },
                     ),
-            shape = RoundedCornerShape(3.dp),
+            shape = RoundedCornerShape(if (iosStyle) 12.dp else 3.dp),
         ) {
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current).data(playlist.thumbnail?.resize(1080, 1080)).build(),
@@ -617,7 +624,7 @@ private fun OnlinePlaylistHeader(
                 Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 24.dp),
-            horizontalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterHorizontally),
+            horizontalArrangement = Arrangement.spacedBy(if (iosStyle) 10.dp else 16.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Like Button - Smaller secondary button
@@ -697,20 +704,84 @@ private fun OnlinePlaylistHeader(
                         )
                     }
                 },
-                color = MaterialTheme.colorScheme.primary,
-                shape = CircleShape,
-                modifier = Modifier.size(72.dp),
+                color = if (iosStyle) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.primary,
+                shape = if (iosStyle) RoundedCornerShape(12.dp) else CircleShape,
+                modifier = if (iosStyle) Modifier.weight(1f).height(48.dp) else Modifier.size(72.dp),
             ) {
                 Box(
                     contentAlignment = Alignment.Center,
                     modifier = Modifier.fillMaxSize(),
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.play),
-                        contentDescription = stringResource(R.string.play),
-                        tint = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(32.dp),
-                    )
+                    if (iosStyle) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.play),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.play),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    } else {
+                        Icon(
+                            painter = painterResource(R.drawable.play),
+                            contentDescription = stringResource(R.string.play),
+                            tint = MaterialTheme.colorScheme.onPrimary,
+                            modifier = Modifier.size(32.dp),
+                        )
+                    }
+                }
+            }
+
+            if (iosStyle) {
+                Surface(
+                    onClick = {
+                        if (!isListenTogetherGuest && songs.isNotEmpty()) {
+                            playerConnection.playQueue(
+                                YouTubePlaylistQueue(
+                                    playlistId = playlist.id,
+                                    playlistTitle = playlist.title,
+                                    initialSongs = songs,
+                                    initialContinuation = continuation,
+                                ),
+                            )
+                            playerConnection.player.shuffleModeEnabled = true
+                        }
+                    },
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.weight(1f).height(48.dp),
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.shuffle),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.shuffle),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
                 }
             }
 

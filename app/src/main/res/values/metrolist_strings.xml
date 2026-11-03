@@ -1021,4 +1021,9 @@
     <string name="recent_searches">Recent searches</string>
     <string name="clear_all">Clear all</string>
     <string name="video_tap_to_retry">Tap to retry</string>
+    <string name="volume_boost">Volume boost</string>
+    <string name="volume_boost_off">Off</string>
+    <string name="volume_boost_description">Play louder than the normal limit. High values may distort loud songs.</string>
+    <string name="playing_next">Playing Next</string>
+    <string name="browse_categories">Browse Categories</string>
 </resources>

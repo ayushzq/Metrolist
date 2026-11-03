@@ -82,6 +82,16 @@ import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.drop
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.text.font.FontWeight
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.metrolist.music.viewmodels.MoodAndGenresViewModel
+import com.metrolist.music.ui.component.LocalIosStyle
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class, FlowPreview::class)
 @Composable
@@ -109,6 +119,15 @@ fun OnlineSearchScreen(
     val lazyListState = rememberLazyListState()
 
     val autoRadioQueue by rememberPreference(AutoRadioQueueKey, defaultValue = true)
+
+    // Apple Music style "Browse Categories" tiles on the empty search page
+    val iosStyle = LocalIosStyle.current
+    val browseCategories =
+        if (iosStyle && query.isEmpty()) {
+            hiltViewModel<MoodAndGenresViewModel>().moodAndGenres.collectAsStateWithLifecycle().value
+        } else {
+            null
+        }
 
     LaunchedEffect(Unit) {
         snapshotFlow { lazyListState.firstVisibleItemScrollOffset }
@@ -452,6 +471,42 @@ fun OnlineSearchScreen(
             }
         }
 
+        if (browseCategories != null) {
+            item(key = "browse_categories_title") {
+                Text(
+                    text = stringResource(R.string.browse_categories),
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(start = 16.dp, top = 20.dp, bottom = 10.dp),
+                )
+            }
+            itemsIndexed(
+                items = browseCategories.flatMap { it.items }.chunked(2),
+                key = { rowIndex, _ -> "browse_row_$rowIndex" },
+            ) { rowIndex, row ->
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    row.forEachIndexed { i, category ->
+                        BrowseCategoryTile(
+                            title = category.title,
+                            color = BrowseCategoryColors[(rowIndex * 2 + i) % BrowseCategoryColors.size],
+                            onClick = {
+                                navController.navigate(
+                                    "youtube_browse/${category.endpoint.browseId}?params=${category.endpoint.params}",
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (row.size < 2) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+
         items(viewState.items, key = { "item_${it.id}" }) { item ->
             YouTubeListItem(
                 item = item,
@@ -679,6 +734,59 @@ fun SuggestionItem(
     onFillTextField: () -> Unit,
     pureBlack: Boolean,
 ) {
+    if (LocalIosStyle.current) {
+        // Apple Music style row: small grey icon, regular text, hairline separator
+        Column(modifier = modifier.fillMaxWidth()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .clickable(onClick = onClick)
+                        .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)),
+            ) {
+                Icon(
+                    painterResource(if (online) R.drawable.search else R.drawable.history),
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 16.dp, end = 14.dp).size(20.dp),
+                )
+                Text(
+                    text = query,
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f),
+                )
+                if (!online) {
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            painter = painterResource(R.drawable.close),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                }
+                IconButton(onClick = onFillTextField) {
+                    Icon(
+                        painter = painterResource(R.drawable.arrow_top_left),
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            HorizontalDivider(
+                modifier = Modifier.padding(start = 50.dp),
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+        return
+    }
+
     Row(
         verticalAlignment = Alignment.CenterVertically,
         modifier =
@@ -723,5 +831,45 @@ fun SuggestionItem(
                 contentDescription = null,
             )
         }
+    }
+}
+
+
+private val BrowseCategoryColors =
+    listOf(
+        Color(0xFFFF375F),
+        Color(0xFFFF9F0A),
+        Color(0xFF30D158),
+        Color(0xFF0A84FF),
+        Color(0xFFBF5AF2),
+        Color(0xFF5E5CE6),
+        Color(0xFFFF453A),
+        Color(0xFF64D2FF),
+    )
+
+@Composable
+private fun BrowseCategoryTile(
+    title: String,
+    color: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier =
+            modifier
+                .height(84.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Brush.linearGradient(listOf(color, color.copy(alpha = 0.6f))))
+                .clickable(onClick = onClick),
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
+        )
     }
 }

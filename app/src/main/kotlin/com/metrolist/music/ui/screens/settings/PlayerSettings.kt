@@ -91,6 +91,7 @@ import com.metrolist.music.ui.component.encodeDayTimes
 import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import com.metrolist.music.ui.utils.getLoudnessLevelLabel
+import com.metrolist.music.constants.VolumeBoostKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -138,6 +139,12 @@ fun PlayerSettings(
         LoudnessLevelKey,
         defaultValue = LoudnessLevel.BALANCED,
     )
+
+    val (volumeBoostMb, onVolumeBoostChange) = rememberPreference(
+        VolumeBoostKey,
+        defaultValue = 0
+    )
+    var showVolumeBoostDialog by remember { mutableStateOf(false) }
 
     val (audioOffload, onAudioOffloadChange) = rememberPreference(
         key = AudioOffload,
@@ -274,6 +281,20 @@ fun PlayerSettings(
                     AudioQuality.LOW -> stringResource(R.string.audio_quality_low)
                 }
             }
+        )
+    }
+
+    if (showVolumeBoostDialog) {
+        EnumDialog(
+            onDismiss = { showVolumeBoostDialog = false },
+            onSelect = {
+                onVolumeBoostChange(it)
+                showVolumeBoostDialog = false
+            },
+            title = stringResource(R.string.volume_boost),
+            current = volumeBoostMb,
+            values = listOf(0, 300, 600, 900),
+            valueText = { if (it == 0) stringResource(R.string.volume_boost_off) else "+${it / 100} dB" }
         )
     }
 
@@ -486,6 +507,17 @@ fun PlayerSettings(
                         onClick = { showLoudnessLevelDialog = true }
                     ))
                 }
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.volume_up),
+                    title = { Text(stringResource(R.string.volume_boost)) },
+                    description = {
+                        Text(
+                            if (volumeBoostMb == 0) stringResource(R.string.volume_boost_description)
+                            else "+${volumeBoostMb / 100} dB"
+                        )
+                    },
+                    onClick = { showVolumeBoostDialog = true }
+                ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.graphic_eq),
                     title = { Text(stringResource(R.string.audio_offload)) },

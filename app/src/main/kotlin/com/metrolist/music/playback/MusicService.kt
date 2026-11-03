@@ -258,6 +258,7 @@ import java.time.LocalDateTime
 import javax.inject.Inject
 import kotlin.random.Random
 import java.util.Collections
+import com.metrolist.music.constants.VolumeBoostKey
 
 private const val INSTANT_SILENCE_SKIP_STEP_MS = 15_000L
 private const val INSTANT_SILENCE_SKIP_SETTLE_MS = 350L
@@ -958,6 +959,13 @@ class MusicService :
             loudnessLevelCached = loudnessLevel
             setupAudioNormalization()
         }
+
+        dataStore.data
+            .map { it[VolumeBoostKey] ?: 0 }
+            .distinctUntilChanged()
+            .collectLatest(scope) { boostMb ->
+                VolumeNormalizationAudioProcessor.boostMb = boostMb
+            }
 
         combine(
             dataStore.data.map { it[AudioOffload] ?: false },

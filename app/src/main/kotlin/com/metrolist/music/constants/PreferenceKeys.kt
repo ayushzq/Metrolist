@@ -148,6 +148,9 @@ val AudioNormalizationKey = booleanPreferencesKey("audioNormalization")
 
 val LoudnessLevelKey = stringPreferencesKey("loudnessLevel")
 
+// Extra gain on top of normalization, in millibels (0, 300, 600, 900). Applied with a soft limiter.
+val VolumeBoostKey = intPreferencesKey("volumeBoostMb")
+
 enum class LoudnessLevel(
     val targetLufs: Float
 ) {

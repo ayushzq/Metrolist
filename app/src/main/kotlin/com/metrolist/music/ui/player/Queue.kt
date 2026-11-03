@@ -215,6 +215,9 @@ fun Queue(
     }
 
     var locked by rememberPreference(QueueEditLockKey, defaultValue = true)
+    // Apple Music style: reordering and swipe-to-remove are always available
+    val iosStyle = LocalIosStyle.current
+    val isLocked = locked && !iosStyle
 
     val (useNewPlayerDesign, onUseNewPlayerDesignChange) =
         rememberPreference(
@@ -871,7 +874,7 @@ fun Queue(
                                                     )
                                                 }
                                             }
-                                            if (!locked && !isListenTogetherGuest) {
+                                            if (!isLocked && !isListenTogetherGuest) {
                                                 IconButton(
                                                     onClick = { },
                                                     modifier = Modifier.draggableHandle(),
@@ -931,7 +934,7 @@ fun Queue(
                             }
                         }
 
-                        if (locked) {
+                        if (isLocked) {
                             content()
                         } else {
                             SwipeToDismissBox(
@@ -1055,13 +1058,34 @@ fun Queue(
                         .height(ListItemHeight)
                         .padding(horizontal = 12.dp),
             ) {
-                Text(
-                    text = queueTitle.orEmpty(),
-                    style = if (LocalIosStyle.current) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f),
-                )
+                if (iosStyle) {
+                    // Apple Music: "Playing Next" with what the queue was started from underneath
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = stringResource(R.string.playing_next),
+                            style = MaterialTheme.typography.titleLarge,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        if (!queueTitle.isNullOrBlank()) {
+                            Text(
+                                text = queueTitle.orEmpty(),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = queueTitle.orEmpty(),
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
 
                 AnimatedVisibility(
                     visible = !inSelectMode,
@@ -1069,14 +1093,33 @@ fun Queue(
                     exit = fadeOut() + slideOutVertically { it },
                 ) {
                     Row {
-                        IconButton(
-                            onClick = { locked = !locked },
-                            modifier = Modifier.padding(horizontal = 6.dp),
-                        ) {
-                            Icon(
-                                painter = painterResource(if (locked) R.drawable.lock else R.drawable.lock_open),
-                                contentDescription = null,
-                            )
+                        if (iosStyle) {
+                            // Clears everything that is queued after the current song
+                            TextButton(
+                                enabled = !isListenTogetherGuest,
+                                onClick = {
+                                    val p = playerConnection.player
+                                    val current = p.currentMediaItemIndex
+                                    val count = p.mediaItemCount
+                                    if (current in 0 until count) {
+                                        if (current + 1 < count) p.removeMediaItems(current + 1, count)
+                                        // With shuffle on, "after" is not the same as the end of the list
+                                        if (p.shuffleModeEnabled && current > 0) p.removeMediaItems(0, current)
+                                    }
+                                },
+                            ) {
+                                Text(text = stringResource(R.string.clear_all))
+                            }
+                        } else {
+                            IconButton(
+                                onClick = { locked = !locked },
+                                modifier = Modifier.padding(horizontal = 6.dp),
+                            ) {
+                                Icon(
+                                    painter = painterResource(if (locked) R.drawable.lock else R.drawable.lock_open),
+                                    contentDescription = null,
+                                )
+                            }
                         }
                     }
                 }
