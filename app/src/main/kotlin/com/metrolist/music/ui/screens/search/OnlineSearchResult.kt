@@ -115,6 +115,7 @@ import com.metrolist.music.utils.rememberPreference
 import com.metrolist.music.viewmodels.OnlineSearchViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.metrolist.music.ui.component.LocalIosStyle
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -486,6 +487,7 @@ fun OnlineSearchResult(
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
+                    tabStyle = LocalIosStyle.current,
                 )
 
                 LazyColumn(

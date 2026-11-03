@@ -20,6 +20,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
+import androidx.compose.ui.res.painterResource
+import com.metrolist.music.R
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 
 /**
  * A Material 3 Expressive style settings group component
@@ -47,6 +50,7 @@ fun Material3SettingsGroup(
     useLowContrast: Boolean = false
 ) {
     if (LocalIosStyle.current) {
+        val iconSeed = kotlin.math.abs(title.orEmpty().hashCode())
         // iOS inset-grouped list: small gray caption, one rounded card, hairline separators
         Column(modifier = Modifier.fillMaxWidth()) {
             title?.let {
@@ -69,12 +73,15 @@ fun Material3SettingsGroup(
                     items.forEachIndexed { index, item ->
                         if (index > 0) {
                             HorizontalDivider(
-                                modifier = Modifier.padding(start = 76.dp),
+                                modifier = Modifier.padding(start = 60.dp),
                                 thickness = 0.5.dp,
                                 color = MaterialTheme.colorScheme.outlineVariant
                             )
                         }
-                        Material3SettingsItemRow(item = item)
+                        IosSettingsItemRow(
+                            item = item,
+                            iconColor = IosIconPalette[(iconSeed + index) % IosIconPalette.size],
+                        )
                     }
                 }
             }
@@ -255,3 +262,108 @@ data class Material3SettingsItem(
     val enabled: Boolean = true,
     val onClick: (() -> Unit)? = null
 )
+
+
+private val IosIconPalette =
+    listOf(
+        Color(0xFF0A84FF),
+        Color(0xFF34C759),
+        Color(0xFFFF9F0A),
+        Color(0xFFFF453A),
+        Color(0xFFBF5AF2),
+        Color(0xFF5AC8FA),
+        Color(0xFFFF375F),
+        Color(0xFF8E8E93),
+        Color(0xFF30B0C7),
+    )
+
+/**
+ * iOS Settings style row: small coloured rounded-square icon with a white glyph,
+ * regular weight title and a trailing chevron for rows that navigate somewhere.
+ */
+@Composable
+private fun IosSettingsItemRow(
+    item: Material3SettingsItem,
+    iconColor: Color,
+) {
+    Row(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .clickable(
+                    enabled = item.enabled && item.onClick != null,
+                    onClick = { item.onClick?.invoke() },
+                ).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (item.leadingContent != null) {
+            item.leadingContent.invoke()
+            Spacer(modifier = Modifier.width(14.dp))
+        } else if (item.icon != null) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(if (item.enabled) iconColor else iconColor.copy(alpha = 0.4f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                if (item.showBadge) {
+                    BadgedBox(badge = { Badge(containerColor = MaterialTheme.colorScheme.error) }) {
+                        Icon(
+                            painter = item.icon,
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp),
+                        )
+                    }
+                } else {
+                    Icon(
+                        painter = item.icon,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+        }
+
+        Column(modifier = Modifier.weight(1f)) {
+            ProvideTextStyle(
+                MaterialTheme.typography.bodyLarge.copy(
+                    color =
+                        if (item.enabled) {
+                            MaterialTheme.colorScheme.onSurface
+                        } else {
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                        },
+                ),
+            ) {
+                item.title()
+            }
+            item.description?.let { desc ->
+                ProvideTextStyle(
+                    MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    ),
+                ) {
+                    desc()
+                }
+            }
+        }
+
+        val trailing = item.trailingContent
+        if (trailing != null) {
+            Spacer(modifier = Modifier.width(8.dp))
+            trailing()
+        } else if (item.onClick != null) {
+            Icon(
+                painter = painterResource(R.drawable.navigate_next),
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}

@@ -65,6 +65,7 @@ import com.metrolist.music.constants.VisitorDataKey
 import com.metrolist.music.constants.YtmSyncKey
 import com.metrolist.music.ui.component.DefaultDialog
 import com.metrolist.music.ui.component.InfoLabel
+import com.metrolist.music.ui.component.LocalIosStyle
 import com.metrolist.music.ui.component.Material3SettingsGroup
 import com.metrolist.music.ui.component.Material3SettingsItem
 import com.metrolist.music.ui.component.TextFieldDialog
@@ -387,6 +388,7 @@ fun AccountSettings(
 
         Spacer(Modifier.height(12.dp))
 
+        val iosStyle = LocalIosStyle.current
         Material3SettingsGroup(
             items = buildList {
                 add(
@@ -399,18 +401,20 @@ fun AccountSettings(
                         }
                     )
                 )
-                add(
-                    Material3SettingsItem(
-                        title = { Text(stringResource(R.string.settings)) },
-                        icon = painterResource(R.drawable.settings),
-                        showBadge = BuildConfig.UPDATER_AVAILABLE &&
-                            latestVersionName != BuildConfig.BASE_VERSION_NAME,
-                        onClick = {
-                            onClose()
-                            navController.navigate("settings")
-                        }
+                if (!iosStyle) {
+                    add(
+                        Material3SettingsItem(
+                            title = { Text(stringResource(R.string.settings)) },
+                            icon = painterResource(R.drawable.settings),
+                            showBadge = BuildConfig.UPDATER_AVAILABLE &&
+                                latestVersionName != BuildConfig.BASE_VERSION_NAME,
+                            onClick = {
+                                onClose()
+                                navController.navigate("settings")
+                            }
+                        )
                     )
-                )
+                }
 
                 if (BuildConfig.UPDATER_AVAILABLE && latestVersionName != BuildConfig.BASE_VERSION_NAME) {
                     val releaseInfo = Updater.getCachedLatestRelease()

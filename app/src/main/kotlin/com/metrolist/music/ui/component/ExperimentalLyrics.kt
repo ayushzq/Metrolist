@@ -159,7 +159,11 @@ fun ExperimentalLyrics(
     val listenTogetherManager = LocalListenTogetherManager.current
     val isGuest = listenTogetherManager?.isInRoom == true && !listenTogetherManager.isHost
 
-    val lyricsTextPosition by rememberEnumPreference(LyricsTextPositionKey, LyricsPosition.CENTER)
+    val iosStyle = LocalIosStyle.current
+    val storedLyricsTextPosition by rememberEnumPreference(LyricsTextPositionKey, LyricsPosition.CENTER)
+    // Apple Music lyrics are left aligned; keep an explicit right-align choice
+    val lyricsTextPosition =
+        if (iosStyle && storedLyricsTextPosition == LyricsPosition.CENTER) LyricsPosition.LEFT else storedLyricsTextPosition
     val changeLyrics by rememberPreference(LyricsClickKey, true)
     val romanizeLyricsList = rememberPreference(LyricsRomanizeList, "")
     val romanizeAsMain by rememberPreference(LyricsRomanizeAsMainKey, false)
@@ -295,9 +299,13 @@ fun ExperimentalLyrics(
         }
     }
 
-    val expressiveAccent = when (playerBackground) {
-        PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.primary
-        PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> Color.White
+    val expressiveAccent = if (iosStyle) {
+        Color.White
+    } else {
+        when (playerBackground) {
+            PlayerBackgroundStyle.DEFAULT -> MaterialTheme.colorScheme.primary
+            PlayerBackgroundStyle.BLUR, PlayerBackgroundStyle.GRADIENT -> Color.White
+        }
     }
 
     var activeLineIndices by remember { mutableStateOf(emptySet<Int>()) }

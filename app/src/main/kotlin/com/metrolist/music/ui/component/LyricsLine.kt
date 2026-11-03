@@ -71,6 +71,9 @@ import kotlin.math.cos
 import kotlin.math.exp
 import kotlin.math.sin
 import kotlin.math.PI
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.BlurredEdgeTreatment
 
 private data class HyphenGroupWord(
     val pos: Int,
@@ -200,7 +203,33 @@ internal fun LyricsLine(
     }) {
         @Composable
         fun LyricContent() {
-            Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = agentAlignment) {
+            val iosStyle = LocalIosStyle.current
+            val lineDistance = if (displayedCurrentLineIndex >= 0) abs(index - displayedCurrentLineIndex) else 0
+            // Apple Music style depth of field: lines further from the current one get softer
+            val blurTarget =
+                if (iosStyle && isSynced && !isActiveLine && !item.isBackground && isAutoScrollEnabled && displayedCurrentLineIndex >= 0) {
+                    when (lineDistance) {
+                        0, 1 -> 1.dp
+                        2 -> 2.dp
+                        else -> 3.dp
+                    }
+                } else {
+                    0.dp
+                }
+            val animatedBlur by animateDpAsState(blurTarget, tween(300), label = "lyricsLineBlur")
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .then(
+                            if (animatedBlur > 0.dp) {
+                                Modifier.blur(animatedBlur, BlurredEdgeTreatment.Unbounded)
+                            } else {
+                                Modifier
+                            },
+                        ),
+                horizontalAlignment = agentAlignment,
+            ) {
                 val inactiveAlpha = if (item.isBackground) 0.08f else 0.2f
                 val activeAlpha = 1f
                 val focusedAlpha = if (item.isBackground) 0.5f else 0.3f

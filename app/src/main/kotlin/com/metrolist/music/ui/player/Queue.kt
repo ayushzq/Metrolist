@@ -140,6 +140,7 @@ import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.material3.Button
+import com.metrolist.music.ui.component.LocalIosStyle
 
 
 @SuppressLint("UnrememberedMutableState")
@@ -1056,7 +1057,7 @@ fun Queue(
             ) {
                 Text(
                     text = queueTitle.orEmpty(),
-                    style = MaterialTheme.typography.titleMedium,
+                    style = if (LocalIosStyle.current) MaterialTheme.typography.titleLarge else MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f),
@@ -1221,6 +1222,12 @@ fun Queue(
                 Icon(
                     painter = painterResource(R.drawable.shuffle),
                     contentDescription = null,
+                    tint =
+                        if (LocalIosStyle.current && shuffleModeEnabled) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            LocalContentColor.current
+                        },
                     modifier = Modifier.alpha(finalAlpha),
                 )
             }
@@ -1248,6 +1255,12 @@ fun Queue(
                             },
                         ),
                     contentDescription = null,
+                    tint =
+                        if (LocalIosStyle.current && repeatMode != Player.REPEAT_MODE_OFF) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            LocalContentColor.current
+                        },
                     modifier = Modifier.alpha(finalAlpha),
                 )
             }

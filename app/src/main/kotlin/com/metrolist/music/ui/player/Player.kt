@@ -199,6 +199,7 @@ import com.metrolist.music.ui.component.Icon as MIcon
 import com.metrolist.music.constants.SleepTimerDefaultKey
 import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
+import com.metrolist.music.ui.component.LocalIosStyle
 
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1611,8 +1612,8 @@ fun BottomSheetPlayer(
                                 interactionSource = backInteractionSource,
                                 colors =
                                     IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = sideButtonContainerColor,
-                                        contentColor = sideButtonContentColor,
+                                        containerColor = if (LocalIosStyle.current) Color.Transparent else sideButtonContainerColor,
+                                        contentColor = if (LocalIosStyle.current) Color.White else sideButtonContentColor,
                                     ),
                                 modifier =
                                     Modifier
@@ -1651,8 +1652,8 @@ fun BottomSheetPlayer(
                                 interactionSource = playPauseInteractionSource,
                                 colors =
                                     IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = textButtonColor,
-                                        contentColor = iconButtonColor,
+                                        containerColor = if (LocalIosStyle.current) Color.Transparent else textButtonColor,
+                                        contentColor = if (LocalIosStyle.current) Color.White else iconButtonColor,
                                     ),
                                 modifier =
                                     Modifier
@@ -1679,18 +1680,20 @@ fun BottomSheetPlayer(
                                             } else {
                                                 if (effectiveIsPlaying) stringResource(R.string.player_pause) else stringResource(R.string.play)
                                             },
-                                        modifier = Modifier.size(32.dp),
+                                        modifier = Modifier.size(if (LocalIosStyle.current) 48.dp else 32.dp),
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text =
-                                            if (isListenTogetherGuest) {
-                                                if (isMuted) stringResource(R.string.unmute) else stringResource(R.string.mute)
-                                            } else {
-                                                if (effectiveIsPlaying) stringResource(R.string.player_pause) else stringResource(R.string.play)
-                                            },
-                                        style = MaterialTheme.typography.titleMedium,
-                                    )
+                                    if (!LocalIosStyle.current) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text =
+                                                if (isListenTogetherGuest) {
+                                                    if (isMuted) stringResource(R.string.unmute) else stringResource(R.string.mute)
+                                                } else {
+                                                    if (effectiveIsPlaying) stringResource(R.string.player_pause) else stringResource(R.string.play)
+                                                },
+                                            style = MaterialTheme.typography.titleMedium,
+                                        )
+                                    }
                                 }
                             }
 
@@ -1703,8 +1706,8 @@ fun BottomSheetPlayer(
                                 interactionSource = nextInteractionSource,
                                 colors =
                                     IconButtonDefaults.filledIconButtonColors(
-                                        containerColor = sideButtonContainerColor,
-                                        contentColor = sideButtonContentColor,
+                                        containerColor = if (LocalIosStyle.current) Color.Transparent else sideButtonContainerColor,
+                                        contentColor = if (LocalIosStyle.current) Color.White else sideButtonContentColor,
                                     ),
                                 modifier =
                                     Modifier

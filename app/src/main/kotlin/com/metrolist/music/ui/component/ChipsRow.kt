@@ -54,6 +54,11 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.metrolist.music.R
 import com.metrolist.music.ui.screens.OptionStats
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
+import androidx.compose.material3.HorizontalDivider
 
 @Composable
 fun <E> ChipsRow(
@@ -62,7 +67,58 @@ fun <E> ChipsRow(
     onValueUpdate: (E) -> Unit,
     modifier: Modifier = Modifier,
     containerColor: Color = MaterialTheme.colorScheme.surfaceContainer,
+    tabStyle: Boolean = false,
 ) {
+    if (tabStyle) {
+        // Apple Music search result tabs: UPPERCASE labels with an accent underline
+        Column(modifier = modifier.fillMaxWidth()) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState())
+                        .windowInsetsPadding(WindowInsets.systemBars.only(WindowInsetsSides.Horizontal)),
+            ) {
+                Spacer(Modifier.width(8.dp))
+                chips.forEach { (value, label) ->
+                    val selected = currentValue == value
+                    Column(
+                        horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                        modifier = Modifier.clickable { onValueUpdate(value) },
+                    ) {
+                        Text(
+                            text = label.uppercase(),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                            color =
+                                if (selected) {
+                                    MaterialTheme.colorScheme.primary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        )
+                        Box(
+                            modifier =
+                                Modifier
+                                    .padding(horizontal = 14.dp)
+                                    .fillMaxWidth()
+                                    .height(2.5.dp)
+                                    .background(
+                                        if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    ),
+                        )
+                    }
+                }
+            }
+            HorizontalDivider(
+                thickness = 0.5.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+            )
+        }
+        return
+    }
+
     Row(
         modifier =
         modifier
