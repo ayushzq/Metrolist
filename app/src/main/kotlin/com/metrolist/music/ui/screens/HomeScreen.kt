@@ -173,6 +173,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.min
 import kotlin.random.Random
+import com.metrolist.music.ui.component.LocalIosStyle
+import androidx.compose.ui.text.style.TextOverflow
 
 sealed class HomeSection(
     val id: String,
@@ -1189,14 +1191,16 @@ fun HomeScreen(
                 state = lazylistState,
                 contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
             ) {
-                item {
-                    ChipsRow(
-                        chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
-                        currentValue = selectedChip,
-                        onValueUpdate = {
-                            viewModel.toggleChip(it)
-                        },
-                    )
+                if (!LocalIosStyle.current) {
+                    item {
+                        ChipsRow(
+                            chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
+                            currentValue = selectedChip,
+                            onValueUpdate = {
+                                viewModel.toggleChip(it)
+                            },
+                        )
+                    }
                 }
 
                 if (isLoading && homePage?.chips.isNullOrEmpty()) {
@@ -1783,6 +1787,89 @@ fun HomeScreen(
                                     )
                                 }
 
+                                if (LocalIosStyle.current) {
+                                item(key = "quick_picks_list") {
+                                    LazyRow(
+                                        contentPadding = PaddingValues(horizontal = 16.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                                    ) {
+                                        items(
+                                            items = quickPicks.distinctBy { it.id },
+                                            key = { "home_quickpick_hero_${it.id}" },
+                                        ) { originalSong ->
+                                            val songState by database
+                                                .song(originalSong.id)
+                                                .collectAsStateWithLifecycle(initialValue = originalSong)
+                                            val shown = songState ?: originalSong
+                                            Column(
+                                                modifier =
+                                                    Modifier
+                                                        .width(280.dp)
+                                                        .combinedClickable(
+                                                            onClick = {
+                                                                if (!isListenTogetherGuest) {
+                                                                    if (shown.id == mediaMetadata?.id) {
+                                                                        playerConnection.togglePlayPause()
+                                                                    } else {
+                                                                        playerConnection.playQueue(
+                                                                            if (autoRadioQueue) {
+                                                                                YouTubeQueue.radio(shown.toMediaMetadata())
+                                                                            } else {
+                                                                                ListQueue(
+                                                                                    title = shown.title,
+                                                                                    items = listOf(shown.toMediaItem()),
+                                                                                )
+                                                                            },
+                                                                        )
+                                                                    }
+                                                                }
+                                                            },
+                                                            onLongClick = {
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                menuState.show {
+                                                                    SongMenu(
+                                                                        originalSong = shown,
+                                                                        onDismiss = menuState::dismiss,
+                                                                    )
+                                                                }
+                                                            },
+                                                        ),
+                                            ) {
+                                                Text(
+                                                    text = stringResource(R.string.quick_picks).uppercase(),
+                                                    style = MaterialTheme.typography.labelSmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                )
+                                                Text(
+                                                    text = shown.title,
+                                                    style = MaterialTheme.typography.titleMedium,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Text(
+                                                    text = shown.artists.joinToString(", ") { it.name },
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                                Spacer(Modifier.height(8.dp))
+                                                AsyncImage(
+                                                    model = shown.thumbnailUrl,
+                                                    contentDescription = null,
+                                                    contentScale = ContentScale.Crop,
+                                                    modifier =
+                                                        Modifier
+                                                            .size(280.dp)
+                                                            .clip(RoundedCornerShape(14.dp))
+                                                            .background(MaterialTheme.colorScheme.surfaceContainer),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                } else {
                                 item(key = "quick_picks_list") {
                                     LazyHorizontalGrid(
                                         state = quickPicksLazyGridState,
@@ -1866,6 +1953,7 @@ fun HomeScreen(
                                             )
                                         }
                                     }
+                                }
                                 }
                             }
                         }

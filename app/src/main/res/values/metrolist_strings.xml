@@ -1026,4 +1026,11 @@
     <string name="volume_boost_description">Play louder than the normal limit. High values may distort loud songs.</string>
     <string name="playing_next">Playing Next</string>
     <string name="browse_categories">Browse Categories</string>
+    <string name="ios_accent_color">Accent colour</string>
+    <string name="ios_accent_blue">Blue</string>
+    <string name="ios_accent_red">Red</string>
+    <string name="ios_accent_pink">Pink</string>
+    <string name="ios_accent_orange">Orange</string>
+    <string name="ios_accent_green">Green</string>
+    <string name="ios_accent_purple">Purple</string>
 </resources>

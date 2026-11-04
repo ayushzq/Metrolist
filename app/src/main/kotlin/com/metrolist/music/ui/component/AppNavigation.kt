@@ -277,7 +277,7 @@ private fun GlassNavigationBar(
     val viewConfiguration = LocalViewConfiguration.current
     val baseColor = if (pureBlack) Color.Black else MaterialTheme.colorScheme.surfaceContainer
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val accent = if (isDark) Color(0xFF0A84FF) else Color(0xFF007AFF)
+    val accent = MaterialTheme.colorScheme.primary
     val idleColor = MaterialTheme.colorScheme.onSurface
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 

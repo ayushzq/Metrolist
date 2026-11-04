@@ -78,6 +78,10 @@ private const val SOFT_CORRECT_FACTOR = 0.05f
 private const val MAX_ATTEMPTS = 3
 private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
+// A stream from a client that hands out slow or stalled URLs is given up on quickly, so the next
+// client is tried after ~5s instead of ~10s; only the last attempt gets the full time.
+private const val EARLY_FRAME_TIMEOUT_MS = 5_000L
+
 // How long a prepared video player is kept alive after the app goes to the background, so coming
 // back shows the picture again almost instantly instead of resolving and buffering from scratch.
 private const val BACKGROUND_KEEP_ALIVE_MS = 60_000L
@@ -95,6 +99,7 @@ fun VideoLayer(
     cropVideo: Boolean,
     followCounterpart: Boolean,
     modifier: Modifier = Modifier,
+    onFrameChange: (Boolean) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
@@ -262,11 +267,14 @@ fun VideoLayer(
 
     LaunchedEffect(videoPlayer) {
         if (videoPlayer == null) return@LaunchedEffect
-        val rendered = withTimeoutOrNull(FIRST_FRAME_TIMEOUT_MS) { snapshotFlow { hasFrame }.first { it } }
+        val timeoutMs = if (attempt >= MAX_ATTEMPTS - 1) FIRST_FRAME_TIMEOUT_MS else EARLY_FRAME_TIMEOUT_MS
+        val rendered = withTimeoutOrNull(timeoutMs) { snapshotFlow { hasFrame }.first { it } }
         if (rendered == null) {
-            onStreamFailure("No picture after ${FIRST_FRAME_TIMEOUT_MS / 1000}s via ${stream?.clientName}", stream?.clientName, null)
+            onStreamFailure("No picture after ${timeoutMs / 1000}s via ${stream?.clientName}", stream?.clientName, null)
         }
     }
+
+    LaunchedEffect(hasFrame) { onFrameChange(hasFrame) }
 
     LaunchedEffect(videoPlayer) {
         val video = videoPlayer ?: return@LaunchedEffect

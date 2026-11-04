@@ -233,6 +233,7 @@ import kotlinx.coroutines.withContext
 import timber.log.Timber
 import java.util.Locale
 import javax.inject.Inject
+import com.metrolist.music.constants.IosAccentKey
 
 private data class AvailableUpdate(
     val release: ReleaseInfo,
@@ -618,6 +619,7 @@ class MainActivity : FragmentActivity() {
         val userDensityScale by rememberPreference(DensityScaleKey, defaultValue = 1f)
         val pureBlackEnabled by rememberPreference(PureBlackKey, defaultValue = false)
         val iosGlassUi by rememberPreference(IosGlassUiKey, defaultValue = false)
+        val iosAccent by rememberPreference(IosAccentKey, defaultValue = 0)
         val pureBlack =
             remember(pureBlackEnabled, useDarkTheme) {
                 pureBlackEnabled && useDarkTheme
@@ -691,6 +693,7 @@ class MainActivity : FragmentActivity() {
             pureBlack = pureBlack,
             themeColor = themeColor,
             iosStyle = iosGlassUi,
+            iosAccentIndex = iosAccent,
         ) {
             val currentDensity = LocalDensity.current
             val windowInfo = LocalWindowInfo.current

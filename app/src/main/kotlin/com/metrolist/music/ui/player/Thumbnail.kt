@@ -89,6 +89,11 @@ import com.metrolist.music.ui.component.CastButton
 import com.metrolist.music.utils.rememberEnumPreference
 import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.delay
+import com.metrolist.music.ui.component.LocalIosStyle
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 
 /**
  * Pre-calculated thumbnail dimensions to avoid repeated calculations during recomposition.
@@ -567,10 +572,28 @@ private fun ThumbnailItem(
             },
         contentAlignment = Alignment.Center
     ) {
+        // iOS style: once the first video frame is on screen the square cover turns into a rounded 16:9 video card
+        val iosStyle = LocalIosStyle.current
+        var videoShowing by remember(item.mediaId) { mutableStateOf(false) }
+        val showVideoCard = iosStyle && videoActive && videoShowing && item.mediaId == currentMediaId
+        val cardHeight by animateDpAsState(
+            targetValue = if (showVideoCard) dimensions.thumbnailSize * 9f / 16f else dimensions.thumbnailSize,
+            animationSpec = tween(durationMillis = 350),
+            label = "videoCardHeight",
+        )
+        val cardRadius = if (showVideoCard) 14.dp else dimensions.cornerRadius
         Box(
             modifier = Modifier
-                .size(dimensions.thumbnailSize)
-                .clip(RoundedCornerShape(dimensions.cornerRadius))
+                .width(dimensions.thumbnailSize)
+                .height(cardHeight)
+                .then(
+                    if (showVideoCard) {
+                        Modifier.shadow(18.dp, RoundedCornerShape(cardRadius), spotColor = Color.Black.copy(alpha = 0.6f))
+                    } else {
+                        Modifier
+                    },
+                )
+                .clip(RoundedCornerShape(cardRadius))
         ) {
             if (hidePlayerThumbnail) {
                 HiddenThumbnailPlaceholder(textBackgroundColor = textBackgroundColor)
@@ -593,6 +616,7 @@ private fun ThumbnailItem(
                         cropVideo = cropAlbumArt,
                         followCounterpart = playerConnection.mediaMetadata.value?.isVideoSong != true,
                         modifier = Modifier.fillMaxSize(),
+                        onFrameChange = { videoShowing = it },
                     )
                 }
             }
@@ -633,6 +657,13 @@ private fun VideoToggleButton(
             .size(36.dp)
             .clip(CircleShape)
             .background(Color.Black.copy(alpha = if (videoMode) 0.65f else 0.4f))
+            .then(
+                if (LocalIosStyle.current) {
+                    Modifier.border(0.5.dp, Color.White.copy(alpha = 0.25f), CircleShape)
+                } else {
+                    Modifier
+                },
+            )
             .clickable(onClick = onClick),
     ) {
         Icon(

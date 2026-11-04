@@ -29,6 +29,7 @@ import com.materialkolor.PaletteStyle
 import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.rememberDynamicColorScheme
 import com.materialkolor.score.Score
+import androidx.compose.ui.graphics.lerp
 
 val DefaultThemeColor = Color(0xFFED5564)
 
@@ -38,6 +39,7 @@ fun MetrolistTheme(
     pureBlack: Boolean = false,
     themeColor: Color = DefaultThemeColor,
     iosStyle: Boolean = false,
+    iosAccentIndex: Int = 0,
     content: @Composable () -> Unit,
 ) {
     val context = LocalContext.current
@@ -59,14 +61,14 @@ fun MetrolistTheme(
     }
 
     // Apply pureBlack modification if needed, similar to original logic
-    val colorScheme = remember(baseColorScheme, pureBlack, darkTheme, iosStyle) {
+    val colorScheme = remember(baseColorScheme, pureBlack, darkTheme, iosStyle, iosAccentIndex) {
         val scheme =
             if (darkTheme && pureBlack) {
                 baseColorScheme.pureBlack(true)
             } else {
                 baseColorScheme
             }
-        if (iosStyle) iosColorScheme(scheme, darkTheme) else scheme
+        if (iosStyle) iosColorScheme(scheme, darkTheme, IosAccents.colorFor(iosAccentIndex, darkTheme)) else scheme
     }
 
     // Use standard MaterialTheme instead of MaterialExpressiveTheme
@@ -89,13 +91,14 @@ fun MetrolistTheme(
 fun iosColorScheme(
     base: ColorScheme,
     darkTheme: Boolean,
+    accent: Color = Color(0xFF0A84FF),
 ): ColorScheme =
     if (darkTheme) {
         base.copy(
-            primary = Color(0xFF0A84FF),
+            primary = accent,
             onPrimary = Color.White,
-            primaryContainer = Color(0xFF0A3D75),
-            onPrimaryContainer = Color(0xFFD6E8FF),
+            primaryContainer = lerp(accent, Color.Black, 0.65f),
+            onPrimaryContainer = lerp(accent, Color.White, 0.8f),
             secondaryContainer = Color(0xFF2C2C2E),
             onSecondaryContainer = Color.White,
             background = Color.Black,
@@ -115,10 +118,10 @@ fun iosColorScheme(
         )
     } else {
         base.copy(
-            primary = Color(0xFF007AFF),
+            primary = accent,
             onPrimary = Color.White,
-            primaryContainer = Color(0xFFD6E8FF),
-            onPrimaryContainer = Color(0xFF0A3D75),
+            primaryContainer = lerp(accent, Color.White, 0.82f),
+            onPrimaryContainer = lerp(accent, Color.Black, 0.55f),
             secondaryContainer = Color(0xFFE5E5EA),
             onSecondaryContainer = Color.Black,
             background = Color.White,
@@ -185,4 +188,21 @@ fun ColorScheme.pureBlack(apply: Boolean) =
 val ColorSaver = object : Saver<Color, Int> {
     override fun restore(value: Int): Color = Color(value)
     override fun SaverScope.save(value: Color): Int = value.toArgb()
+}
+
+
+/** Accent colours selectable for the iOS style (index is stored in the IosAccentKey preference). */
+object IosAccents {
+    private val dark = listOf(0xFF0A84FF, 0xFFFA2D48, 0xFFFF375F, 0xFFFF9F0A, 0xFF30D158, 0xFFBF5AF2)
+    private val light = listOf(0xFF007AFF, 0xFFFA243C, 0xFFFF2D55, 0xFFFF9500, 0xFF34C759, 0xFFAF52DE)
+
+    val count: Int get() = dark.size
+
+    fun colorFor(
+        index: Int,
+        darkTheme: Boolean,
+    ): Color {
+        val list = if (darkTheme) dark else light
+        return Color(list[index.coerceIn(0, list.size - 1)])
+    }
 }

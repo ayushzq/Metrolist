@@ -120,6 +120,11 @@ import com.metrolist.music.utils.rememberPreference
 import kotlinx.coroutines.launch
 import java.util.Locale
 import kotlin.math.roundToInt
+import com.metrolist.music.constants.IosAccentKey
+import com.metrolist.music.ui.theme.IosAccents
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1027,6 +1032,11 @@ fun AppearanceSettings(
                 IosGlassUiKey,
                 defaultValue = false,
             )
+        val (iosAccent, onIosAccentChange) =
+            rememberPreference(
+                IosAccentKey,
+                defaultValue = 0,
+            )
 
         Material3SettingsGroup(
             title = stringResource(id = R.string.ios_glass_ui_group),
@@ -1043,6 +1053,35 @@ fun AppearanceSettings(
                             )
                         },
                         onClick = { onIosGlassUiChange(!iosGlassUi) },
+                    ),
+                    Material3SettingsItem(
+                        icon = painterResource(R.drawable.palette),
+                        title = { Text(stringResource(R.string.ios_accent_color)) },
+                        description = {
+                            Text(
+                                stringResource(
+                                    when (iosAccent) {
+                                        1 -> R.string.ios_accent_red
+                                        2 -> R.string.ios_accent_pink
+                                        3 -> R.string.ios_accent_orange
+                                        4 -> R.string.ios_accent_green
+                                        5 -> R.string.ios_accent_purple
+                                        else -> R.string.ios_accent_blue
+                                    },
+                                ),
+                            )
+                        },
+                        trailingContent = {
+                            Box(
+                                modifier =
+                                    Modifier
+                                        .size(22.dp)
+                                        .clip(CircleShape)
+                                        .background(IosAccents.colorFor(iosAccent, isSystemInDarkTheme())),
+                            )
+                        },
+                        enabled = iosGlassUi,
+                        onClick = { onIosAccentChange((iosAccent + 1) % IosAccents.count) },
                     ),
                 ),
         )
