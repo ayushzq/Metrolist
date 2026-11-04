@@ -1187,11 +1187,13 @@ fun HomeScreen(
                     )
                 }
 
+            // Read here: the LazyColumn content below is not a composable scope
+            val iosStyle = LocalIosStyle.current
             LazyColumn(
                 state = lazylistState,
                 contentPadding = LocalPlayerAwareWindowInsets.current.asPaddingValues(),
             ) {
-                if (!LocalIosStyle.current) {
+                if (!iosStyle) {
                     item {
                         ChipsRow(
                             chips = homePage?.chips?.map { it to it.title } ?: emptyList(),
@@ -1787,7 +1789,7 @@ fun HomeScreen(
                                     )
                                 }
 
-                                if (LocalIosStyle.current) {
+                                if (iosStyle) {
                                 item(key = "quick_picks_list") {
                                     LazyRow(
                                         contentPadding = PaddingValues(horizontal = 16.dp),

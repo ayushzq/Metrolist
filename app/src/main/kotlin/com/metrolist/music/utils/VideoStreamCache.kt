@@ -127,6 +127,47 @@ object VideoStreamCache {
         return deferred.await()
     }
 
+    /**
+     * Resolves a stream while skipping [excluded] clients, bypassing the cache. Used to race a second
+     * client against a stream that is slow to start. Call [store] if the result turns out to win.
+     */
+    suspend fun resolveExcluding(
+        context: Context,
+        mediaId: String,
+        followCounterpart: Boolean,
+        excluded: Set<String>,
+    ): Result<Resolved> {
+        val appContext = context.applicationContext
+        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val videoId = if (followCounterpart) counterpartId(appContext, mediaId) ?: mediaId else mediaId
+        val result =
+            InnerTubeXPlayer.videoStreamForPlayback(
+                videoId = videoId,
+                maxVideoHeight = maxHeightFor(appContext),
+                connectivityManager = connectivityManager,
+                allowHls = false,
+                extraExcludedClients = excluded,
+            )
+        val stream =
+            result.getOrNull()
+                ?: return Result.failure(result.exceptionOrNull() ?: IllegalStateException("No video stream"))
+        return Result.success(Resolved(videoId, stream, expiryOf(stream.url)))
+    }
+
+    /** Makes [resolved] the cached stream for [mediaId], e.g. after it won a race. */
+    fun store(
+        context: Context,
+        mediaId: String,
+        followCounterpart: Boolean,
+        resolved: Resolved,
+    ) {
+        val k = key(context.applicationContext, mediaId, followCounterpart)
+        synchronized(entries) {
+            entries[k] = resolved
+            while (entries.size > MAX_ENTRIES) entries.remove(entries.keys.first())
+        }
+    }
+
     /** Fire-and-forget warm-up, e.g. when a track starts playing or is next in the queue. */
     fun prefetch(
         context: Context,

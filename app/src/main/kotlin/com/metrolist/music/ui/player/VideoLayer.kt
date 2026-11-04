@@ -29,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -79,8 +80,12 @@ private const val MAX_ATTEMPTS = 3
 private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
 // A stream from a client that hands out slow or stalled URLs is given up on quickly, so the next
-// client is tried after ~5s instead of ~10s; only the last attempt gets the full time.
+// attempt starts after ~5s instead of ~10s; only the last attempt gets the full time.
 private const val EARLY_FRAME_TIMEOUT_MS = 5_000L
+
+// If the first stream has not shown a picture after this long, a second stream from a different
+// client is resolved and played in parallel; whichever draws a frame first wins.
+private const val HEDGE_DELAY_MS = 2_500L
 
 // How long a prepared video player is kept alive after the app goes to the background, so coming
 // back shows the picture again almost instantly instead of resolving and buffering from scratch.
@@ -88,8 +93,11 @@ private const val BACKGROUND_KEEP_ALIVE_MS = 60_000L
 
 /**
  * Plays the video track of [mediaId] muted on top of the artwork while the regular audio player
- * stays the single source of truth for position, play/pause and speed. Leaving the foreground
- * releases the video player, so background playback is audio-only and costs nothing extra.
+ * stays the single source of truth for position, play/pause and speed.
+ *
+ * Starting is a race: the first stream starts immediately and, if it has not drawn a picture after
+ * [HEDGE_DELAY_MS], a stream from another client is started in parallel. The first one to render a
+ * frame wins, the other is released, and the winner is remembered for next time.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
@@ -116,7 +124,17 @@ fun VideoLayer(
     var retryNonce by remember(mediaId, followCounterpart) { mutableIntStateOf(0) }
     val failed = failureDetail != null
 
-    // Keeps the prepared player alive for a short while in the background (see BACKGROUND_KEEP_ALIVE_MS).
+    // Race state; it starts over whenever the primary stream changes.
+    var altResolved by remember(mediaId, followCounterpart, stream, retryNonce) {
+        mutableStateOf<VideoStreamCache.Resolved?>(null)
+    }
+    var primaryDead by remember(mediaId, followCounterpart, stream, retryNonce) { mutableStateOf(false) }
+    var altDead by remember(mediaId, followCounterpart, stream, retryNonce) { mutableStateOf(false) }
+
+    // 0 = nobody has drawn a frame yet, 1 = the first stream won, 2 = the parallel stream won
+    var winner by remember(mediaId, followCounterpart, stream, retryNonce) { mutableIntStateOf(0) }
+
+    // Keeps the prepared players alive for a short while in the background (see BACKGROUND_KEEP_ALIVE_MS).
     val isForegroundState = rememberUpdatedState(isForeground)
     var keepVideo by remember { mutableStateOf(true) }
     LaunchedEffect(isForeground) {
@@ -147,6 +165,34 @@ fun VideoLayer(
         }
     }
 
+    fun onSlotError(
+        isAlt: Boolean,
+        detail: String,
+        clientName: String,
+        httpCode: Int?,
+    ) {
+        val id = if (isAlt) altResolved?.videoId else resolvedVideoId
+        if (id != null) InnerTubeXPlayer.markStreamClientFailed(id, clientName)
+        if (httpCode == 403) scope.launch { InnerTubeXPlayer.refreshAfterStreamRejection() }
+        if (isAlt) altDead = true else primaryDead = true
+        val altAlive = altResolved != null && !altDead
+        val primaryAlive = stream != null && !primaryDead
+        // Only when every stream is gone does the normal retry chain (next client) take over.
+        if (!altAlive && !primaryAlive) onStreamFailure(detail, null, null)
+    }
+
+    fun onSlotFrame(isAlt: Boolean) {
+        if (winner != 0) return
+        winner = if (isAlt) 2 else 1
+        if (isAlt) {
+            // The parallel client was faster: remember it and steer clear of the slow one next time.
+            altResolved?.let { VideoStreamCache.store(context, mediaId, followCounterpart, it) }
+            val id = resolvedVideoId
+            val slowClient = stream?.clientName
+            if (id != null && slowClient != null) InnerTubeXPlayer.markStreamClientFailed(id, slowClient)
+        }
+    }
+
     LaunchedEffect(mediaId, followCounterpart, attempt, retryNonce) {
         if (attempt > 0) stream = null
         VideoStreamCache
@@ -164,185 +210,71 @@ fun VideoLayer(
             }
     }
 
-    var videoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
-    var hasFrame by remember { mutableStateOf(false) }
-    var videoRatio by remember { mutableFloatStateOf(16f / 9f) }
+    // Start the parallel stream if the first one is slow to show a picture.
+    LaunchedEffect(stream, retryNonce, keepVideo) {
+        val primary = stream ?: return@LaunchedEffect
+        if (!keepVideo) return@LaunchedEffect
+        delay(HEDGE_DELAY_MS)
+        if (winner == 0 && !primaryDead && altResolved == null && failureDetail == null && isForegroundState.value) {
+            VideoStreamCache
+                .resolveExcluding(context, mediaId, followCounterpart, setOf(primary.clientName))
+                .onSuccess { if (it.stream.url != primary.url) altResolved = it }
+        }
+    }
+
     var loadingSeconds by remember(mediaId, followCounterpart) { mutableIntStateOf(0) }
 
     // Shows how long the video has been loading and in which stage, so a slow step is visible.
-    LaunchedEffect(mediaId, followCounterpart, hasFrame, failed) {
+    LaunchedEffect(mediaId, followCounterpart, winner, failed) {
         loadingSeconds = 0
-        while (!hasFrame && !failed) {
+        while (winner == 0 && !failed) {
             delay(1_000L)
             loadingSeconds += 1
         }
     }
 
-    DisposableEffect(stream, keepVideo) {
-        val resolved = stream
-        if (resolved == null || !keepVideo) {
-            videoPlayer = null
-            hasFrame = false
-            return@DisposableEffect onDispose {}
-        }
-
-        val player =
-            ExoPlayer
-                .Builder(context)
-                // Start as soon as ~0.25s is buffered; the video is muted and follows the audio anyway.
-                .setLoadControl(
-                    DefaultLoadControl
-                        .Builder()
-                        .setBufferDurationsMs(2_000, 15_000, 250, 1_000)
-                        // Hard cap so a high-bitrate stream can never exhaust the heap.
-                        .setTargetBufferBytes(8 * 1024 * 1024)
-                        .setPrioritizeTimeOverSizeThresholds(false)
-                        .build(),
-                ).build()
-                .apply {
-                volume = 0f
-                trackSelectionParameters =
-                    trackSelectionParameters
-                        .buildUpon()
-                        .setMaxVideoSize(Int.MAX_VALUE, videoMaxHeight)
-                        .build()
-                playWhenReady = false
-                setMediaSource(buildVideoMediaSource(resolved))
-                seekTo(audioPlayer.currentPosition)
-                prepare()
-            }
-        val listener =
-            object : Player.Listener {
-                override fun onRenderedFirstFrame() {
-                    hasFrame = true
-                }
-
-                override fun onVideoSizeChanged(videoSize: VideoSize) {
-                    if (videoSize.width > 0 && videoSize.height > 0) {
-                        videoRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
-                    }
-                }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    Timber.tag(TAG).w(error, "Video playback error for %s (client=%s)", mediaId, resolved.clientName)
-                    val httpCode =
-                        generateSequence<Throwable>(error) { it.cause }
-                            .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
-                            .firstOrNull()
-                            ?.responseCode
-                    onStreamFailure(
-                        detail = (if (httpCode != null) "HTTP $httpCode" else error.errorCodeName) + " via ${resolved.clientName}",
-                        clientName = resolved.clientName,
-                        httpCode = httpCode,
-                    )
-                }
-            }
-        player.addListener(listener)
-
-        val audioListener =
-            object : Player.Listener {
-                override fun onPositionDiscontinuity(
-                    oldPosition: Player.PositionInfo,
-                    newPosition: Player.PositionInfo,
-                    reason: Int,
-                ) {
-                    if (reason == Player.DISCONTINUITY_REASON_SEEK ||
-                        reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
-                    ) {
-                        player.seekTo(newPosition.positionMs)
-                    }
-                }
-            }
-        audioPlayer.addListener(audioListener)
-
-        videoPlayer = player
-        onDispose {
-            audioPlayer.removeListener(audioListener)
-            player.removeListener(listener)
-            videoPlayer = null
-            hasFrame = false
-            player.release()
-        }
-    }
-
-    LaunchedEffect(videoPlayer) {
-        if (videoPlayer == null) return@LaunchedEffect
+    // Nobody drew a picture in time: give up on this attempt and move on to the next client.
+    LaunchedEffect(stream, keepVideo, isForeground, retryNonce) {
+        val primary = stream ?: return@LaunchedEffect
+        if (!keepVideo || !isForeground) return@LaunchedEffect
         val timeoutMs = if (attempt >= MAX_ATTEMPTS - 1) FIRST_FRAME_TIMEOUT_MS else EARLY_FRAME_TIMEOUT_MS
-        val rendered = withTimeoutOrNull(timeoutMs) { snapshotFlow { hasFrame }.first { it } }
+        val rendered = withTimeoutOrNull(timeoutMs) { snapshotFlow { winner != 0 }.first { it } }
         if (rendered == null) {
-            onStreamFailure("No picture after ${timeoutMs / 1000}s via ${stream?.clientName}", stream?.clientName, null)
+            altResolved?.let { alt -> InnerTubeXPlayer.markStreamClientFailed(alt.videoId, alt.stream.clientName) }
+            onStreamFailure("No picture after ${timeoutMs / 1000}s via ${primary.clientName}", primary.clientName, null)
         }
     }
 
-    LaunchedEffect(hasFrame) { onFrameChange(hasFrame) }
-
-    LaunchedEffect(videoPlayer) {
-        val video = videoPlayer ?: return@LaunchedEffect
-        while (isActive) {
-            val audioReady = audioPlayer.playbackState == Player.STATE_READY
-            val baseSpeed = audioPlayer.playbackParameters.speed
-            val drift = video.currentPosition - audioPlayer.currentPosition
-
-            val visible = isForegroundState.value
-            video.playWhenReady = visible && audioPlayer.playWhenReady && audioReady
-
-            // In the background the video stays paused and is not chased along (saves data);
-            // the first pass after returning re-syncs it with a hard seek.
-            if (visible && audioReady && abs(drift) > HARD_SEEK_DRIFT_MS) {
-                video.seekTo(audioPlayer.currentPosition)
-            }
-
-            val targetSpeed =
-                when {
-                    !video.isPlaying -> baseSpeed
-                    drift > SOFT_CORRECT_DRIFT_MS -> baseSpeed * (1f - SOFT_CORRECT_FACTOR)
-                    drift < -SOFT_CORRECT_DRIFT_MS -> baseSpeed * (1f + SOFT_CORRECT_FACTOR)
-                    else -> baseSpeed
-                }
-            if (video.playbackParameters.speed != targetSpeed) {
-                video.setPlaybackSpeed(targetSpeed)
-            }
-            delay(SYNC_INTERVAL_MS)
-        }
-    }
-
-    val videoAlpha by animateFloatAsState(
-        targetValue = if (hasFrame) 1f else 0f,
-        animationSpec = tween(durationMillis = 350),
-        label = "videoFadeIn",
-    )
+    LaunchedEffect(winner) { onFrameChange(winner != 0) }
 
     Box(modifier = modifier.clipToBounds(), contentAlignment = Alignment.Center) {
-        val player = videoPlayer
-        if (player != null && !failed) {
-            val textureView = remember(player) { TextureView(context) }
-            DisposableEffect(player, textureView) {
-                player.setVideoTextureView(textureView)
-                onDispose { player.clearVideoTextureView(textureView) }
-            }
-            BoxWithConstraints(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center,
-            ) {
-                val boxWidth: Float = maxWidth.value
-                val boxHeight: Float = maxHeight.value
-                val ratio: Float = videoRatio
-                val boxRatio: Float = boxWidth / boxHeight
-                val fillWidth: Boolean = if (cropVideo) ratio < boxRatio else ratio >= boxRatio
-                val width: Float = if (fillWidth) boxWidth else boxHeight * ratio
-                val height: Float = if (fillWidth) boxWidth / ratio else boxHeight
-                AndroidView(
-                    factory = { textureView },
-                    modifier =
-                        Modifier
-                            .requiredSize(width.dp, height.dp)
-                            .alpha(videoAlpha),
-                )
-            }
-        }
+        VideoSlot(
+            stream = if (failed || primaryDead || winner == 2) null else stream,
+            audioPlayer = audioPlayer,
+            videoMaxHeight = videoMaxHeight,
+            keepVideo = keepVideo,
+            isForegroundState = isForegroundState,
+            cropVideo = cropVideo,
+            visible = winner != 2,
+            onFirstFrame = { onSlotFrame(isAlt = false) },
+            onError = { detail, client, code -> onSlotError(false, detail, client, code) },
+            modifier = Modifier.fillMaxSize(),
+        )
+        VideoSlot(
+            stream = if (failed || altDead || winner == 1) null else altResolved?.stream,
+            audioPlayer = audioPlayer,
+            videoMaxHeight = videoMaxHeight,
+            keepVideo = keepVideo,
+            isForegroundState = isForegroundState,
+            cropVideo = cropVideo,
+            visible = winner != 1,
+            onFirstFrame = { onSlotFrame(isAlt = true) },
+            onError = { detail, client, code -> onSlotError(true, detail, client, code) },
+            modifier = Modifier.fillMaxSize(),
+        )
 
         AnimatedVisibility(
-            visible = !failed && (stream == null || (videoPlayer != null && !hasFrame)),
+            visible = !failed && (stream == null || winner == 0),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.Center),
@@ -394,6 +326,189 @@ fun VideoLayer(
                             retryNonce += 1
                         }.padding(horizontal = 10.dp, vertical = 6.dp),
             )
+        }
+    }
+}
+
+/**
+ * One muted video player bound to one resolved [stream]. It follows [audioPlayer] and reports the
+ * first rendered frame and playback errors to its parent; it renders nothing while [stream] is null.
+ */
+@androidx.annotation.OptIn(UnstableApi::class)
+@Composable
+private fun VideoSlot(
+    stream: InnerTubeXPlayer.VideoStreamData?,
+    audioPlayer: ExoPlayer,
+    videoMaxHeight: Int,
+    keepVideo: Boolean,
+    isForegroundState: State<Boolean>,
+    cropVideo: Boolean,
+    visible: Boolean,
+    onFirstFrame: () -> Unit,
+    onError: (detail: String, clientName: String, httpCode: Int?) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    var videoPlayer by remember { mutableStateOf<ExoPlayer?>(null) }
+    var hasFrame by remember { mutableStateOf(false) }
+    var videoRatio by remember { mutableFloatStateOf(16f / 9f) }
+    val onFirstFrameState = rememberUpdatedState(onFirstFrame)
+    val onErrorState = rememberUpdatedState(onError)
+
+    DisposableEffect(stream, keepVideo) {
+        val resolved = stream
+        if (resolved == null || !keepVideo) {
+            videoPlayer = null
+            hasFrame = false
+            return@DisposableEffect onDispose {}
+        }
+
+        val player =
+            ExoPlayer
+                .Builder(context)
+                // Start as soon as ~0.25s is buffered; the video is muted and follows the audio anyway.
+                .setLoadControl(
+                    DefaultLoadControl
+                        .Builder()
+                        .setBufferDurationsMs(2_000, 15_000, 250, 1_000)
+                        // Hard cap so a high-bitrate stream can never exhaust the heap.
+                        .setTargetBufferBytes(8 * 1024 * 1024)
+                        .setPrioritizeTimeOverSizeThresholds(false)
+                        .build(),
+                ).build()
+                .apply {
+                    volume = 0f
+                    trackSelectionParameters =
+                        trackSelectionParameters
+                            .buildUpon()
+                            .setMaxVideoSize(Int.MAX_VALUE, videoMaxHeight)
+                            .build()
+                    playWhenReady = false
+                    setMediaSource(buildVideoMediaSource(resolved))
+                    seekTo(audioPlayer.currentPosition)
+                    prepare()
+                }
+        val listener =
+            object : Player.Listener {
+                override fun onRenderedFirstFrame() {
+                    hasFrame = true
+                }
+
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    if (videoSize.width > 0 && videoSize.height > 0) {
+                        videoRatio = videoSize.width * videoSize.pixelWidthHeightRatio / videoSize.height
+                    }
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    Timber.tag(TAG).w(error, "Video playback error (client=%s)", resolved.clientName)
+                    val httpCode =
+                        generateSequence<Throwable>(error) { it.cause }
+                            .filterIsInstance<HttpDataSource.InvalidResponseCodeException>()
+                            .firstOrNull()
+                            ?.responseCode
+                    onErrorState.value(
+                        (if (httpCode != null) "HTTP $httpCode" else error.errorCodeName) + " via ${resolved.clientName}",
+                        resolved.clientName,
+                        httpCode,
+                    )
+                }
+            }
+        player.addListener(listener)
+
+        val audioListener =
+            object : Player.Listener {
+                override fun onPositionDiscontinuity(
+                    oldPosition: Player.PositionInfo,
+                    newPosition: Player.PositionInfo,
+                    reason: Int,
+                ) {
+                    if (reason == Player.DISCONTINUITY_REASON_SEEK ||
+                        reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT
+                    ) {
+                        player.seekTo(newPosition.positionMs)
+                    }
+                }
+            }
+        audioPlayer.addListener(audioListener)
+
+        videoPlayer = player
+        onDispose {
+            audioPlayer.removeListener(audioListener)
+            player.removeListener(listener)
+            videoPlayer = null
+            hasFrame = false
+            player.release()
+        }
+    }
+
+    LaunchedEffect(hasFrame) {
+        if (hasFrame) onFirstFrameState.value()
+    }
+
+    LaunchedEffect(videoPlayer) {
+        val video = videoPlayer ?: return@LaunchedEffect
+        while (isActive) {
+            val audioReady = audioPlayer.playbackState == Player.STATE_READY
+            val baseSpeed = audioPlayer.playbackParameters.speed
+            val drift = video.currentPosition - audioPlayer.currentPosition
+
+            val foreground = isForegroundState.value
+            video.playWhenReady = foreground && audioPlayer.playWhenReady && audioReady
+
+            // In the background the video stays paused and is not chased along (saves data);
+            // the first pass after returning re-syncs it with a hard seek.
+            if (foreground && audioReady && abs(drift) > HARD_SEEK_DRIFT_MS) {
+                video.seekTo(audioPlayer.currentPosition)
+            }
+
+            val targetSpeed =
+                when {
+                    !video.isPlaying -> baseSpeed
+                    drift > SOFT_CORRECT_DRIFT_MS -> baseSpeed * (1f - SOFT_CORRECT_FACTOR)
+                    drift < -SOFT_CORRECT_DRIFT_MS -> baseSpeed * (1f + SOFT_CORRECT_FACTOR)
+                    else -> baseSpeed
+                }
+            if (video.playbackParameters.speed != targetSpeed) {
+                video.setPlaybackSpeed(targetSpeed)
+            }
+            delay(SYNC_INTERVAL_MS)
+        }
+    }
+
+    val videoAlpha by animateFloatAsState(
+        targetValue = if (hasFrame && visible) 1f else 0f,
+        animationSpec = tween(durationMillis = 350),
+        label = "videoFadeIn",
+    )
+
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        val player = videoPlayer
+        if (player != null) {
+            val textureView = remember(player) { TextureView(context) }
+            DisposableEffect(player, textureView) {
+                player.setVideoTextureView(textureView)
+                onDispose { player.clearVideoTextureView(textureView) }
+            }
+            BoxWithConstraints(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center,
+            ) {
+                val boxWidth: Float = maxWidth.value
+                val boxHeight: Float = maxHeight.value
+                val ratio: Float = videoRatio
+                val boxRatio: Float = boxWidth / boxHeight
+                val fillWidth: Boolean = if (cropVideo) ratio < boxRatio else ratio >= boxRatio
+                val width: Float = if (fillWidth) boxWidth else boxHeight * ratio
+                val height: Float = if (fillWidth) boxWidth / ratio else boxHeight
+                AndroidView(
+                    factory = { textureView },
+                    modifier =
+                        Modifier
+                            .requiredSize(width.dp, height.dp)
+                            .alpha(videoAlpha),
+                )
+            }
         }
     }
 }

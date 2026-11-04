@@ -111,6 +111,7 @@ object InnerTubeXPlayer {
         connectivityManager: ConnectivityManager,
         allowHls: Boolean = false,
         contentHints: ContentHints = ContentHints(),
+        extraExcludedClients: Set<String> = emptySet(),
     ): Result<VideoStreamData> =
         try {
             val hints =
@@ -126,7 +127,7 @@ object InnerTubeXPlayer {
                     bundle().extractor.extract(
                         videoId = videoId,
                         hints = hints,
-                        excludedClients = failedStreamClients(videoId),
+                        excludedClients = failedStreamClients(videoId) + extraExcludedClients,
                         audioQuality = AudioQuality.LOW.toInnerTubeX(connectivityManager),
                         clientPlaybackNonce = generateClientPlaybackNonce(),
                     ),
