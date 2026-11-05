@@ -14,6 +14,8 @@ import com.metrolist.music.db.MusicDatabase
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -26,24 +28,27 @@ import java.util.Locale
 import javax.inject.Inject
 
 /**
- * One entry of the trending list.
- * [matchedArtist] is set when the song is by an artist the user already listens to,
- * [likedGenre] when it only shares a genre with such songs.
+ * One entry of a country chart.
+ * [matchedArtist] is an artist the user listens to, [pickedArtist] one the user chose to hear first,
+ * [likedGenre] a song that only shares a genre with such songs.
  */
 data class TrendingTrack(
     val title: String,
     val artist: String,
     val artworkUrl: String?,
     val genre: String?,
-    val matchedArtist: String?,
-    val likedGenre: Boolean,
+    val country: String,
+    val rank: Int,
+    val matchedArtist: String? = null,
+    val pickedArtist: String? = null,
+    val likedGenre: Boolean = false,
 )
 
 /**
- * "Trending for you": takes Apple Music's free, keyless "most played" chart for the user's country
- * (rss.marketingtools.apple.com) and puts the songs that fit the user's taste first. Taste comes from
- * the user's own most played artists; songs by those artists, and songs in the genres those artists
- * chart in, are ranked above the rest. A tapped entry is looked up on YouTube Music and played.
+ * Trending songs from Apple Music's free, keyless "most played" charts (rss.marketingtools.apple.com),
+ * for every country the user picked. The shelf has a "For you" tab that blends all picked countries and
+ * ranks songs by the user's taste (artists they play, artists they chose, matching genres), plus one tab
+ * per country. A tapped entry is looked up on YouTube Music and played.
  */
 @HiltViewModel
 class TrendingViewModel
@@ -52,25 +57,40 @@ class TrendingViewModel
         @ApplicationContext private val context: Context,
         private val database: MusicDatabase,
     ) : ViewModel() {
+        private val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+        val countries = MutableStateFlow(loadCountries())
+        val pickedArtists = MutableStateFlow(prefs.getStringSet(KEY_ARTISTS, emptySet()).orEmpty().toSet())
+        val selectedTab = MutableStateFlow(prefs.getString(KEY_TAB, TAB_FOR_YOU) ?: TAB_FOR_YOU)
         val tracks = MutableStateFlow<List<TrendingTrack>>(emptyList())
+        val availableArtists = MutableStateFlow<List<String>>(emptyList())
         val isLoading = MutableStateFlow(true)
+
+        private var charts: Map<String, List<TrendingTrack>> = emptyMap()
+        private var favouriteArtists: List<String> = emptyList()
 
         init {
             load()
         }
 
+        private fun loadCountries(): List<String> {
+            val saved = prefs.getString(KEY_COUNTRIES, null)?.split(',')?.filter { it.length == 2 }
+            if (!saved.isNullOrEmpty()) return saved
+            val device = Locale.getDefault().country.lowercase(Locale.ROOT)
+            return listOf(device, "in").filter { it.length == 2 }.distinct()
+        }
+
         fun load() {
             viewModelScope.launch(Dispatchers.IO) {
                 isLoading.value = true
-                val deviceCountry = Locale.getDefault().country.lowercase(Locale.ROOT)
-                val chart =
-                    listOf(deviceCountry, "in", "us")
-                        .filter { it.length == 2 }
-                        .distinct()
-                        .firstNotNullOfOrNull { fetchChart(it) }
-                        .orEmpty()
-
-                val favouriteArtists =
+                val selected = countries.value
+                charts =
+                    selected
+                        .map { cc -> async { cc to fetchChart(cc) } }
+                        .awaitAll()
+                        .mapNotNull { (cc, chart) -> chart?.let { cc to it } }
+                        .toMap()
+                favouriteArtists =
                     runCatching {
                         database
                             .mostPlayedArtists(LocalDateTime.of(2000, 1, 1, 0, 0), limit = 40)
@@ -78,38 +98,98 @@ class TrendingViewModel
                             .map { it.artist.name }
                             .filter { it.length >= 3 }
                     }.getOrDefault(emptyList())
-
-                tracks.value = personalise(chart, favouriteArtists)
+                availableArtists.value =
+                    charts.values
+                        .flatten()
+                        .flatMap { splitArtists(it.artist) }
+                        .groupingBy { it }
+                        .eachCount()
+                        .entries
+                        .sortedByDescending { it.value }
+                        .map { it.key }
+                        .take(40)
+                // A saved country tab that is no longer selected falls back to "For you".
+                if (selectedTab.value != TAB_FOR_YOU && selectedTab.value !in charts) selectedTab.value = TAB_FOR_YOU
+                rebuild()
                 isLoading.value = false
             }
         }
 
-        private fun personalise(
-            chart: List<TrendingTrack>,
-            favouriteArtists: List<String>,
-        ): List<TrendingTrack> {
-            if (chart.isEmpty()) return emptyList()
-            fun matchOf(track: TrendingTrack): String? {
-                val artistLine = track.artist.lowercase(Locale.ROOT)
-                return favouriteArtists.firstOrNull { artistLine.contains(it.lowercase(Locale.ROOT)) }
-            }
-            val withMatch = chart.map { it.copy(matchedArtist = matchOf(it)) }
-            // Genres the user's own artists appear in on the chart describe their taste.
-            val likedGenres = withMatch.filter { it.matchedArtist != null }.mapNotNull { it.genre }.toSet()
-            return withMatch
-                .map { it.copy(likedGenre = it.matchedArtist == null && it.genre != null && it.genre in likedGenres) }
-                .withIndex()
-                .sortedWith(
-                    compareByDescending<IndexedValue<TrendingTrack>> {
-                        when {
-                            it.value.matchedArtist != null -> 2
-                            it.value.likedGenre -> 1
-                            else -> 0
-                        }
-                    }.thenBy { it.index },
-                ).map { it.value }
-                .take(25)
+        fun selectTab(tab: String) {
+            selectedTab.value = tab
+            prefs.edit().putString(KEY_TAB, tab).apply()
+            rebuild()
         }
+
+        /** Saves the chosen countries and artists, then reloads the charts. */
+        fun applyChoices(
+            newCountries: List<String>,
+            newArtists: Set<String>,
+        ) {
+            val picked = newCountries.filter { it.length == 2 }.distinct().ifEmpty { listOf("in") }
+            countries.value = picked
+            pickedArtists.value = newArtists
+            prefs
+                .edit()
+                .putString(KEY_COUNTRIES, picked.joinToString(","))
+                .putStringSet(KEY_ARTISTS, newArtists)
+                .apply()
+            load()
+        }
+
+        private fun rebuild() {
+            val tab = selectedTab.value
+            val picked = pickedArtists.value
+            val all = charts.values.flatten()
+
+            fun artistMatch(
+                track: TrendingTrack,
+                names: Collection<String>,
+            ): String? {
+                val line = track.artist.lowercase(Locale.ROOT)
+                return names.firstOrNull { line.contains(it.lowercase(Locale.ROOT)) }
+            }
+            val withMatches =
+                all.map {
+                    it.copy(matchedArtist = artistMatch(it, favouriteArtists), pickedArtist = artistMatch(it, picked))
+                }
+            // Genres of the songs by artists the user likes describe their taste.
+            val likedGenres =
+                withMatches
+                    .filter { it.matchedArtist != null || it.pickedArtist != null }
+                    .mapNotNull { it.genre }
+                    .toSet()
+            val scored =
+                withMatches.map {
+                    it.copy(likedGenre = it.matchedArtist == null && it.pickedArtist == null && it.genre != null && it.genre in likedGenres)
+                }
+
+            tracks.value =
+                if (tab == TAB_FOR_YOU) {
+                    // Blend every picked country: best score first, then the best chart rank.
+                    scored
+                        .distinctBy { "${it.title.lowercase(Locale.ROOT)}|${it.artist.lowercase(Locale.ROOT)}" }
+                        .sortedWith(
+                            compareByDescending<TrendingTrack> {
+                                when {
+                                    it.pickedArtist != null -> 3
+                                    it.matchedArtist != null -> 2
+                                    it.likedGenre -> 1
+                                    else -> 0
+                                }
+                            }.thenBy { it.rank },
+                        ).take(30)
+                } else {
+                    // A country tab is that country's chart, in chart order.
+                    scored.filter { it.country == tab }.sortedBy { it.rank }
+                }
+        }
+
+        private fun splitArtists(line: String): List<String> =
+            line
+                .split(",", "&", " feat. ", " ft. ", " x ", ";")
+                .map { it.trim() }
+                .filter { it.length >= 3 }
 
         private fun fetchChart(country: String): List<TrendingTrack>? {
             var connection: HttpURLConnection? = null
@@ -141,8 +221,8 @@ class TrendingViewModel
                                         ?.optJSONObject(0)
                                         ?.optString("name")
                                         ?.takeIf { it.isNotBlank() && !it.equals("Music", ignoreCase = true) },
-                                matchedArtist = null,
-                                likedGenre = false,
+                                country = country,
+                                rank = i + 1,
                             ),
                         )
                     }
@@ -164,4 +244,19 @@ class TrendingViewModel
                     ?.filterIsInstance<SongItem>()
                     ?.firstOrNull()
             }
+
+        companion object {
+            const val TAB_FOR_YOU = "for_you"
+            private const val PREFS = "trending_prefs"
+            private const val KEY_COUNTRIES = "countries"
+            private const val KEY_ARTISTS = "artists"
+            private const val KEY_TAB = "tab"
+
+            /** Countries offered in the picker (Apple Music storefront codes). */
+            val ALL_COUNTRIES =
+                listOf(
+                    "in", "us", "gb", "pk", "bd", "np", "lk", "ae", "sa", "ca", "au", "nz", "sg", "my",
+                    "id", "ph", "jp", "kr", "br", "mx", "es", "fr", "de", "it", "tr", "ng", "za", "eg",
+                )
+        }
     }

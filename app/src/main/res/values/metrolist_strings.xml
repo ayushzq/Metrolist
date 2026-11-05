@@ -1036,4 +1036,11 @@
     <string name="trending_for_you">Trending for you</string>
     <string name="trending_reason_artist">Because you listen to %1$s</string>
     <string name="trending_reason_genre">More %1$s</string>
+    <string name="trending_customise">Customise</string>
+    <string name="trending_tab_for_you">For you</string>
+    <string name="trending_countries">Countries</string>
+    <string name="trending_select_all">Select all</string>
+    <string name="trending_artists_first">Artists you want to hear first</string>
+    <string name="trending_done">Done</string>
+    <string name="trending_reason_picked">You picked %1$s</string>
 </resources>

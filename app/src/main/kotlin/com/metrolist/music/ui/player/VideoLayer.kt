@@ -70,10 +70,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import kotlin.math.abs
+import android.os.SystemClock
 
 private const val TAG = "VideoLayer"
 private const val SYNC_INTERVAL_MS = 250L
 private const val HARD_SEEK_DRIFT_MS = 600L
+
+// A hard seek restarts buffering. Repeating it every sync pass while the video is still loading
+// kept the picture frozen, so seeks are spaced out and skipped while the video is buffering.
+private const val MIN_HARD_SEEK_INTERVAL_MS = 3_000L
 private const val SOFT_CORRECT_DRIFT_MS = 120L
 private const val SOFT_CORRECT_FACTOR = 0.05f
 private const val MAX_ATTEMPTS = 3
@@ -456,6 +461,7 @@ private fun VideoSlot(
 
     LaunchedEffect(videoPlayer) {
         val video = videoPlayer ?: return@LaunchedEffect
+        var lastHardSeekAt = 0L
         while (isActive) {
             val audioReady = audioPlayer.playbackState == Player.STATE_READY
             val baseSpeed = audioPlayer.playbackParameters.speed
@@ -466,8 +472,13 @@ private fun VideoSlot(
 
             // In the background the video stays paused and is not chased along (saves data);
             // the first pass after returning re-syncs it with a hard seek.
-            if (foreground && audioReady && abs(drift) > HARD_SEEK_DRIFT_MS) {
+            val now = SystemClock.elapsedRealtime()
+            if (foreground && audioReady && abs(drift) > HARD_SEEK_DRIFT_MS &&
+                video.playbackState != Player.STATE_BUFFERING &&
+                now - lastHardSeekAt > MIN_HARD_SEEK_INTERVAL_MS
+            ) {
                 video.seekTo(audioPlayer.currentPosition)
+                lastHardSeekAt = now
             }
 
             val targetSpeed =
