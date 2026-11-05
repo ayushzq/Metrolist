@@ -21,6 +21,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import com.metrolist.innertubex.extraction.ContentHints
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.cancelChildren
 
 /**
  * Keeps resolved video streams so the player never repeats the slow part (counterpart lookup +
@@ -38,7 +41,12 @@ object VideoStreamCache {
 
     private const val MAX_ENTRIES = 12
     private const val VIDEO_PREFS = "video_stream_prefs"
-    private const val FORCED_CLIENT_TIMEOUT_MS = 6_000L
+
+    // Clients that answer a video request without a PO token, asked all at once (see raceClients).
+    private val RACE_CLIENTS =
+        listOf("WEB_EMBEDDED_PLAYER", "TVHTML5_DOWNGRADED", "WEB_KIDS", "ANDROID_VR_1_43_32", "VISIONOS")
+    private const val RACE_TIMEOUT_MS = 8_000L
+    private const val AUTO_RESOLVE_TIMEOUT_MS = 20_000L
     private const val PREFS_NAME = "video_counterparts"
     private const val MAX_STORED_PAIRS = 3000
     private const val COUNTERPART_TIMEOUT_MS = 6_000L
@@ -143,18 +151,54 @@ object VideoStreamCache {
         val appContext = context.applicationContext
         val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val videoId = if (followCounterpart) counterpartId(appContext, mediaId) ?: mediaId else mediaId
-        val result =
-            InnerTubeXPlayer.videoStreamForPlayback(
-                videoId = videoId,
-                maxVideoHeight = maxHeightFor(appContext),
-                connectivityManager = connectivityManager,
-                allowHls = true,
-                extraExcludedClients = excluded,
-            )
+        val failedClients = InnerTubeXPlayer.failedStreamClients(videoId)
+        val candidates = RACE_CLIENTS.filter { it !in excluded && it !in failedClients }
         val stream =
-            result.getOrNull()
-                ?: return Result.failure(result.exceptionOrNull() ?: IllegalStateException("No video stream"))
+            raceClients(appContext, videoId, connectivityManager, candidates)
+                ?: return Result.failure(IllegalStateException("No other video client answered"))
         return Result.success(Resolved(videoId, stream, expiryOf(stream.url)))
+    }
+
+    /**
+     * Asks every client in [candidates] for a stream at the same time, each for exactly that client
+     * (one request each, no PO token), and returns the first stream that comes back. Whether a stream
+     * actually plays is decided by the player; clients that fail there are blacklisted and skipped.
+     */
+    private suspend fun raceClients(
+        context: Context,
+        videoId: String,
+        connectivityManager: ConnectivityManager,
+        candidates: List<String>,
+    ): InnerTubeXPlayer.VideoStreamData? {
+        if (candidates.isEmpty()) return null
+        val height = maxHeightFor(context)
+        return withTimeoutOrNull(RACE_TIMEOUT_MS) {
+            coroutineScope {
+                val answers = Channel<InnerTubeXPlayer.VideoStreamData?>(candidates.size)
+                candidates.forEach { client ->
+                    launch {
+                        val stream =
+                            runCatching {
+                                InnerTubeXPlayer.videoStreamForPlayback(
+                                    videoId = videoId,
+                                    maxVideoHeight = height,
+                                    connectivityManager = connectivityManager,
+                                    allowHls = true,
+                                    contentHints = ContentHints(playbackClientOverrideId = client),
+                                )
+                            }.getOrNull()?.getOrNull()
+                        answers.trySend(stream)
+                    }
+                }
+                var winner: InnerTubeXPlayer.VideoStreamData? = null
+                for (i in candidates.indices) {
+                    winner = answers.receive()
+                    if (winner != null) break
+                }
+                this.coroutineContext.cancelChildren()
+                winner
+            }
+        }
     }
 
     /** Makes [resolved] the cached stream for [mediaId], e.g. after it won a race. */
@@ -223,30 +267,28 @@ object VideoStreamCache {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         // An audio-only track's own video is just artwork; its music video is the paired counterpart.
         val videoId = if (followCounterpart) counterpartId(context, mediaId) ?: mediaId else mediaId
-        // Fast path: ask for the client that worked last time (one request instead of a search).
-        val preferred = preferredClient(context)
-        val forced =
-            if (preferred != null && preferred.first !in InnerTubeXPlayer.failedStreamClients(videoId)) {
-                withTimeoutOrNull(FORCED_CLIENT_TIMEOUT_MS) {
+        // Race single-client requests instead of letting the extractor walk through its client list one
+        // by one (that walk can take over a minute: PO token waits and an 8s timeout per client).
+        val failedClients = InnerTubeXPlayer.failedStreamClients(videoId)
+        val candidates =
+            (listOfNotNull(preferredClient(context)?.first) + RACE_CLIENTS)
+                .distinct()
+                .filter { it !in failedClients }
+        val raced = raceClients(context, videoId, connectivityManager, candidates)
+        val result =
+            if (raced != null) {
+                Result.success(raced)
+            } else {
+                // Nothing answered in time: the normal extraction, but bounded, so it can never hang.
+                withTimeoutOrNull(AUTO_RESOLVE_TIMEOUT_MS) {
                     InnerTubeXPlayer.videoStreamForPlayback(
                         videoId = videoId,
                         maxVideoHeight = maxHeightFor(context),
                         connectivityManager = connectivityManager,
-                        allowHls = allowHls || preferred.second,
-                        contentHints = ContentHints(playbackClientOverrideId = preferred.first),
+                        allowHls = allowHls,
                     )
-                }?.takeIf { it.isSuccess }
-            } else {
-                null
+                } ?: Result.failure(IllegalStateException("Video lookup timed out"))
             }
-        val result =
-            forced
-                ?: InnerTubeXPlayer.videoStreamForPlayback(
-                    videoId = videoId,
-                    maxVideoHeight = maxHeightFor(context),
-                    connectivityManager = connectivityManager,
-                    allowHls = allowHls,
-                )
         val stream =
             result.getOrNull()
                 ?: return Result.failure(result.exceptionOrNull() ?: IllegalStateException("No video stream"))
