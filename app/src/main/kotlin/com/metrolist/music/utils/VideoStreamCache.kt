@@ -20,6 +20,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
+import com.metrolist.innertubex.extraction.ContentHints
 
 /**
  * Keeps resolved video streams so the player never repeats the slow part (counterpart lookup +
@@ -36,6 +37,8 @@ object VideoStreamCache {
     )
 
     private const val MAX_ENTRIES = 12
+    private const val VIDEO_PREFS = "video_stream_prefs"
+    private const val FORCED_CLIENT_TIMEOUT_MS = 6_000L
     private const val PREFS_NAME = "video_counterparts"
     private const val MAX_STORED_PAIRS = 3000
     private const val COUNTERPART_TIMEOUT_MS = 6_000L
@@ -145,7 +148,7 @@ object VideoStreamCache {
                 videoId = videoId,
                 maxVideoHeight = maxHeightFor(appContext),
                 connectivityManager = connectivityManager,
-                allowHls = false,
+                allowHls = true,
                 extraExcludedClients = excluded,
             )
         val stream =
@@ -166,6 +169,37 @@ object VideoStreamCache {
             entries[k] = resolved
             while (entries.size > MAX_ENTRIES) entries.remove(entries.keys.first())
         }
+    }
+
+    /**
+     * The client whose stream last drew a picture. Asking for exactly that client skips the slow
+     * client-by-client search, so after the first success a video starts in about a second.
+     */
+    private fun preferredClient(context: Context): Pair<String, Boolean>? {
+        val prefs = context.getSharedPreferences(VIDEO_PREFS, Context.MODE_PRIVATE)
+        val name = prefs.getString("client", null)?.takeIf { it.isNotBlank() } ?: return null
+        return name to prefs.getBoolean("hls", false)
+    }
+
+    fun rememberWorkingClient(
+        context: Context,
+        clientName: String,
+        isHls: Boolean,
+    ) {
+        context.applicationContext
+            .getSharedPreferences(VIDEO_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString("client", clientName)
+            .putBoolean("hls", isHls)
+            .apply()
+    }
+
+    fun forgetWorkingClient(
+        context: Context,
+        clientName: String,
+    ) {
+        val prefs = context.applicationContext.getSharedPreferences(VIDEO_PREFS, Context.MODE_PRIVATE)
+        if (prefs.getString("client", null) == clientName) prefs.edit().remove("client").remove("hls").apply()
     }
 
     /** Fire-and-forget warm-up, e.g. when a track starts playing or is next in the queue. */
@@ -189,13 +223,30 @@ object VideoStreamCache {
         val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         // An audio-only track's own video is just artwork; its music video is the paired counterpart.
         val videoId = if (followCounterpart) counterpartId(context, mediaId) ?: mediaId else mediaId
+        // Fast path: ask for the client that worked last time (one request instead of a search).
+        val preferred = preferredClient(context)
+        val forced =
+            if (preferred != null && preferred.first !in InnerTubeXPlayer.failedStreamClients(videoId)) {
+                withTimeoutOrNull(FORCED_CLIENT_TIMEOUT_MS) {
+                    InnerTubeXPlayer.videoStreamForPlayback(
+                        videoId = videoId,
+                        maxVideoHeight = maxHeightFor(context),
+                        connectivityManager = connectivityManager,
+                        allowHls = allowHls || preferred.second,
+                        contentHints = ContentHints(playbackClientOverrideId = preferred.first),
+                    )
+                }?.takeIf { it.isSuccess }
+            } else {
+                null
+            }
         val result =
-            InnerTubeXPlayer.videoStreamForPlayback(
-                videoId = videoId,
-                maxVideoHeight = maxHeightFor(context),
-                connectivityManager = connectivityManager,
-                allowHls = allowHls,
-            )
+            forced
+                ?: InnerTubeXPlayer.videoStreamForPlayback(
+                    videoId = videoId,
+                    maxVideoHeight = maxHeightFor(context),
+                    connectivityManager = connectivityManager,
+                    allowHls = allowHls,
+                )
         val stream =
             result.getOrNull()
                 ?: return Result.failure(result.exceptionOrNull() ?: IllegalStateException("No video stream"))

@@ -1033,4 +1033,7 @@
     <string name="ios_accent_orange">Orange</string>
     <string name="ios_accent_green">Green</string>
     <string name="ios_accent_purple">Purple</string>
+    <string name="trending_for_you">Trending for you</string>
+    <string name="trending_reason_artist">Because you listen to %1$s</string>
+    <string name="trending_reason_genre">More %1$s</string>
 </resources>

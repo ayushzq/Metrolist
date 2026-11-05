@@ -229,7 +229,19 @@ fun Thumbnail(
     val hidePlayerThumbnail by rememberPreference(HidePlayerThumbnailKey, false)
     val cropAlbumArt by rememberPreference(CropAlbumArtKey, false)
     var videoMode by rememberPreference(VideoModeKey, false)
-    val videoActive by remember { derivedStateOf { videoMode && isPlayerExpanded() } }
+    // The video stays composed (paused) for a while after the player is collapsed, so opening it again
+    // shows the picture straight away instead of resolving and buffering from scratch.
+    val videoVisible by remember { derivedStateOf { videoMode && isPlayerExpanded() } }
+    var videoWarm by remember { mutableStateOf(false) }
+    LaunchedEffect(videoVisible, videoMode) {
+        if (videoVisible) {
+            videoWarm = true
+        } else if (videoWarm) {
+            delay(90_000L)
+            videoWarm = false
+        }
+    }
+    val videoActive = videoMode && (videoVisible || videoWarm)
     val playerBackground by rememberEnumPreference(
         key = PlayerBackgroundStyleKey,
         defaultValue = PlayerBackgroundStyle.DEFAULT
@@ -416,6 +428,7 @@ fun Thumbnail(
                                 currentMediaThumbnail = mediaMetadata?.thumbnailUrl,
                                 videoMode = videoMode,
                                 videoActive = videoActive,
+                                videoPlaying = videoVisible,
                                 onToggleVideo = { videoMode = !videoMode },
                             )
                         }
@@ -516,6 +529,7 @@ private fun ThumbnailItem(
     currentMediaThumbnail: String? = null,
     videoMode: Boolean = false,
     videoActive: Boolean = false,
+    videoPlaying: Boolean = true,
     onToggleVideo: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
@@ -617,6 +631,7 @@ private fun ThumbnailItem(
                         followCounterpart = playerConnection.mediaMetadata.value?.isVideoSong != true,
                         modifier = Modifier.fillMaxSize(),
                         onFrameChange = { videoShowing = it },
+                        playing = videoPlaying,
                     )
                 }
             }

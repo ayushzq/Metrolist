@@ -108,6 +108,7 @@ fun VideoLayer(
     followCounterpart: Boolean,
     modifier: Modifier = Modifier,
     onFrameChange: (Boolean) -> Unit = {},
+    playing: Boolean = true,
 ) {
     val context = LocalContext.current
     val lifecycleState by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
@@ -135,7 +136,8 @@ fun VideoLayer(
     var winner by remember(mediaId, followCounterpart, stream, retryNonce) { mutableIntStateOf(0) }
 
     // Keeps the prepared players alive for a short while in the background (see BACKGROUND_KEEP_ALIVE_MS).
-    val isForegroundState = rememberUpdatedState(isForeground)
+    // Playing only while the player is open and the app visible; otherwise the prepared player waits.
+    val isForegroundState = rememberUpdatedState(isForeground && playing)
     var keepVideo by remember { mutableStateOf(true) }
     LaunchedEffect(isForeground) {
         if (isForeground) {
@@ -173,6 +175,7 @@ fun VideoLayer(
     ) {
         val id = if (isAlt) altResolved?.videoId else resolvedVideoId
         if (id != null) InnerTubeXPlayer.markStreamClientFailed(id, clientName)
+        VideoStreamCache.forgetWorkingClient(context, clientName)
         if (httpCode == 403) scope.launch { InnerTubeXPlayer.refreshAfterStreamRejection() }
         if (isAlt) altDead = true else primaryDead = true
         val altAlive = altResolved != null && !altDead
@@ -184,6 +187,10 @@ fun VideoLayer(
     fun onSlotFrame(isAlt: Boolean) {
         if (winner != 0) return
         winner = if (isAlt) 2 else 1
+        // Remember which client drew a picture so the next video asks for it directly.
+        (if (isAlt) altResolved?.stream else stream)?.let {
+            VideoStreamCache.rememberWorkingClient(context, it.clientName, it.isHls)
+        }
         if (isAlt) {
             // The parallel client was faster: remember it and steer clear of the slow one next time.
             altResolved?.let { VideoStreamCache.store(context, mediaId, followCounterpart, it) }
@@ -234,13 +241,14 @@ fun VideoLayer(
     }
 
     // Nobody drew a picture in time: give up on this attempt and move on to the next client.
-    LaunchedEffect(stream, keepVideo, isForeground, retryNonce) {
+    LaunchedEffect(stream, keepVideo, isForeground, playing, retryNonce) {
         val primary = stream ?: return@LaunchedEffect
-        if (!keepVideo || !isForeground) return@LaunchedEffect
+        if (!keepVideo || !isForeground || !playing) return@LaunchedEffect
         val timeoutMs = if (attempt >= MAX_ATTEMPTS - 1) FIRST_FRAME_TIMEOUT_MS else EARLY_FRAME_TIMEOUT_MS
         val rendered = withTimeoutOrNull(timeoutMs) { snapshotFlow { winner != 0 }.first { it } }
         if (rendered == null) {
             altResolved?.let { alt -> InnerTubeXPlayer.markStreamClientFailed(alt.videoId, alt.stream.clientName) }
+            VideoStreamCache.forgetWorkingClient(context, primary.clientName)
             onStreamFailure("No picture after ${timeoutMs / 1000}s via ${primary.clientName}", primary.clientName, null)
         }
     }

@@ -175,6 +175,7 @@ import kotlin.math.min
 import kotlin.random.Random
 import com.metrolist.music.ui.component.LocalIosStyle
 import androidx.compose.ui.text.style.TextOverflow
+import com.metrolist.music.ui.component.TrendingForYouSection
 
 sealed class HomeSection(
     val id: String,
@@ -1202,6 +1203,12 @@ fun HomeScreen(
                                 viewModel.toggleChip(it)
                             },
                         )
+                    }
+                }
+
+                if (selectedChip == null) {
+                    item(key = "trending_for_you") {
+                        TrendingForYouSection()
                     }
                 }
 
