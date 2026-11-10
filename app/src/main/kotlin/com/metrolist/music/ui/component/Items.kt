@@ -316,10 +316,11 @@ inline fun ListItem(
                 .weight(1f)
                 .padding(horizontal = 6.dp)
         ) {
+            val iosRows = LocalIosStyle.current
             Text(
                 text = title,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = FontWeight.Bold,
+                style = if (iosRows) MaterialTheme.typography.bodyLarge else MaterialTheme.typography.bodyMedium,
+                fontWeight = if (iosRows) FontWeight.Normal else FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -496,7 +497,8 @@ fun SongListItem(
         if (song.song.explicit) {
             Icon.Explicit()
         }
-        if (!song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
+        // Apple style rows only show the heart, "E" and download state
+        if (!LocalIosStyle.current && !song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
             Icon.VersionBadge(if (song.song.isVideo) SongVersion.ALTERNATE else SongVersion.OFFICIAL)
         }
         if (showInLibraryIcon && song.song.inLibrary != null) {
@@ -589,7 +591,8 @@ fun SongGridItem(
         if (showLikedIcon && song.song.liked) {
             Icon.Favorite()
         }
-        if (!song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
+        // Apple style rows only show the heart, "E" and download state
+        if (!LocalIosStyle.current && !song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
             Icon.VersionBadge(if (song.song.isVideo) SongVersion.ALTERNATE else SongVersion.OFFICIAL)
         }
         if (showInLibraryIcon && song.song.inLibrary != null) {

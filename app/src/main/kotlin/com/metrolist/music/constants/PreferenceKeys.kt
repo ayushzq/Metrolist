@@ -134,6 +134,21 @@ enum class VideoQuality(
     P1080(1080),
 }
 
+/** Also download the video of a song when the song is downloaded. */
+val DownloadVideoKey = booleanPreferencesKey("downloadVideo")
+val DownloadVideoQualityKey = stringPreferencesKey("downloadVideoQuality")
+
+/** Height cap for downloaded videos; MAXIMUM takes the best stream that exists (up to 4K). */
+enum class DownloadVideoQuality(
+    val maxHeight: Int,
+) {
+    MAXIMUM(2160),
+    P1080(1080),
+    P720(720),
+    P480(480),
+    P360(360),
+}
+
 val AudioOffload = booleanPreferencesKey("enableOffload")
 val AudioTrackPlaybackParamsKey = booleanPreferencesKey("audioTrackPlaybackParams")
 

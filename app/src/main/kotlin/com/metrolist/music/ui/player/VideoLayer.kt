@@ -71,16 +71,24 @@ import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
 import kotlin.math.abs
 import android.os.SystemClock
+import com.metrolist.music.LocalDownloadUtil
+import com.metrolist.music.playback.VIDEO_DOWNLOAD_PREFIX
+import com.metrolist.music.playback.buildOfflineVideoMediaSource
+import androidx.media3.exoplayer.offline.Download
+import androidx.media3.datasource.cache.Cache
 
 private const val TAG = "VideoLayer"
-private const val SYNC_INTERVAL_MS = 250L
+private const val SYNC_INTERVAL_MS = 150L
 private const val HARD_SEEK_DRIFT_MS = 600L
 
 // A hard seek restarts buffering. Repeating it every sync pass while the video is still loading
 // kept the picture frozen, so seeks are spaced out and skipped while the video is buffering.
 private const val MIN_HARD_SEEK_INTERVAL_MS = 3_000L
-private const val SOFT_CORRECT_DRIFT_MS = 120L
-private const val SOFT_CORRECT_FACTOR = 0.05f
+private const val SOFT_CORRECT_DRIFT_MS = 80L
+private const val SOFT_CORRECT_FACTOR = 0.06f
+
+// A video that was playing and then makes no progress for this long is dropped for another client.
+private const val STALL_TIMEOUT_MS = 7_000L
 private const val MAX_ATTEMPTS = 3
 private const val FIRST_FRAME_TIMEOUT_MS = 10_000L
 
@@ -120,6 +128,11 @@ fun VideoLayer(
     val isForeground = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
 
     val scope = rememberCoroutineScope()
+    val downloadUtil = LocalDownloadUtil.current
+    val offlineAtStart =
+        remember(mediaId) {
+            downloadUtil.downloads.value[VIDEO_DOWNLOAD_PREFIX + mediaId]?.state == Download.STATE_COMPLETED
+        }
     val videoMaxHeight = remember(mediaId) { VideoStreamCache.maxHeightFor(context) }
     val cached = remember(mediaId, followCounterpart) { VideoStreamCache.peek(context, mediaId, followCounterpart) }
 
@@ -177,11 +190,20 @@ fun VideoLayer(
         detail: String,
         clientName: String,
         httpCode: Int?,
+        stalled: Boolean,
     ) {
         val id = if (isAlt) altResolved?.videoId else resolvedVideoId
         if (id != null) InnerTubeXPlayer.markStreamClientFailed(id, clientName)
         VideoStreamCache.forgetWorkingClient(context, clientName)
         if (httpCode == 403) scope.launch { InnerTubeXPlayer.refreshAfterStreamRejection() }
+        if (stalled && winner != 0 && clientName != VideoStreamCache.OFFLINE_CLIENT) {
+            // The picture was playing and then froze (a stream cut off part-way): look for another client
+            // right away, without using up one of the start-up attempts.
+            VideoStreamCache.invalidate(context, mediaId, followCounterpart)
+            stream = null
+            retryNonce += 1
+            return
+        }
         if (isAlt) altDead = true else primaryDead = true
         val altAlive = altResolved != null && !altDead
         val primaryAlive = stream != null && !primaryDead
@@ -193,9 +215,9 @@ fun VideoLayer(
         if (winner != 0) return
         winner = if (isAlt) 2 else 1
         // Remember which client drew a picture so the next video asks for it directly.
-        (if (isAlt) altResolved?.stream else stream)?.let {
-            VideoStreamCache.rememberWorkingClient(context, it.clientName, it.isHls)
-        }
+        (if (isAlt) altResolved?.stream else stream)
+            ?.takeIf { it.clientName != VideoStreamCache.OFFLINE_CLIENT }
+            ?.let { VideoStreamCache.rememberWorkingClient(context, it.clientName, it.isHls) }
         if (isAlt) {
             // The parallel client was faster: remember it and steer clear of the slow one next time.
             altResolved?.let { VideoStreamCache.store(context, mediaId, followCounterpart, it) }
@@ -206,6 +228,23 @@ fun VideoLayer(
     }
 
     LaunchedEffect(mediaId, followCounterpart, attempt, retryNonce) {
+        if (offlineAtStart && attempt == 0 && retryNonce == 0) {
+            // The video was downloaded with the song: play the saved file, no lookup needed.
+            resolvedVideoId = mediaId
+            stream =
+                InnerTubeXPlayer.VideoStreamData(
+                    url = "offline:$mediaId",
+                    headers = emptyMap(),
+                    width = null,
+                    height = null,
+                    contentLengthBytes = null,
+                    clientName = VideoStreamCache.OFFLINE_CLIENT,
+                    requireBoundedRange = false,
+                    rangeChunkSizeBytes = 0L,
+                    useRangeChunks = false,
+                )
+            return@LaunchedEffect
+        }
         if (attempt > 0) stream = null
         VideoStreamCache
             .resolve(
@@ -225,7 +264,7 @@ fun VideoLayer(
     // Start the parallel stream if the first one is slow to show a picture.
     LaunchedEffect(stream, retryNonce, keepVideo) {
         val primary = stream ?: return@LaunchedEffect
-        if (!keepVideo) return@LaunchedEffect
+        if (!keepVideo || primary.clientName == VideoStreamCache.OFFLINE_CLIENT) return@LaunchedEffect
         delay(HEDGE_DELAY_MS)
         if (winner == 0 && !primaryDead && altResolved == null && failureDetail == null && isForegroundState.value) {
             VideoStreamCache
@@ -270,7 +309,8 @@ fun VideoLayer(
             cropVideo = cropVideo,
             visible = winner != 2,
             onFirstFrame = { onSlotFrame(isAlt = false) },
-            onError = { detail, client, code -> onSlotError(false, detail, client, code) },
+            downloadCache = downloadUtil.downloadCache,
+            onError = { detail, client, code, stalled -> onSlotError(false, detail, client, code, stalled) },
             modifier = Modifier.fillMaxSize(),
         )
         VideoSlot(
@@ -282,7 +322,8 @@ fun VideoLayer(
             cropVideo = cropVideo,
             visible = winner != 1,
             onFirstFrame = { onSlotFrame(isAlt = true) },
-            onError = { detail, client, code -> onSlotError(true, detail, client, code) },
+            downloadCache = downloadUtil.downloadCache,
+            onError = { detail, client, code, stalled -> onSlotError(true, detail, client, code, stalled) },
             modifier = Modifier.fillMaxSize(),
         )
 
@@ -358,7 +399,8 @@ private fun VideoSlot(
     cropVideo: Boolean,
     visible: Boolean,
     onFirstFrame: () -> Unit,
-    onError: (detail: String, clientName: String, httpCode: Int?) -> Unit,
+    downloadCache: Cache?,
+    onError: (detail: String, clientName: String, httpCode: Int?, stalled: Boolean) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
@@ -397,7 +439,13 @@ private fun VideoSlot(
                             .setMaxVideoSize(Int.MAX_VALUE, videoMaxHeight)
                             .build()
                     playWhenReady = false
-                    setMediaSource(buildVideoMediaSource(resolved))
+                    setMediaSource(
+                        if (resolved.clientName == VideoStreamCache.OFFLINE_CLIENT && downloadCache != null) {
+                            buildOfflineVideoMediaSource(downloadCache, VIDEO_DOWNLOAD_PREFIX + resolved.url.removePrefix("offline:"))
+                        } else {
+                            buildVideoMediaSource(resolved)
+                        },
+                    )
                     seekTo(audioPlayer.currentPosition)
                     prepare()
                 }
@@ -424,6 +472,7 @@ private fun VideoSlot(
                         (if (httpCode != null) "HTTP $httpCode" else error.errorCodeName) + " via ${resolved.clientName}",
                         resolved.clientName,
                         httpCode,
+                        false,
                     )
                 }
             }
@@ -441,6 +490,20 @@ private fun VideoSlot(
                     ) {
                         player.seekTo(newPosition.positionMs)
                     }
+                }
+
+                // Pause / resume of the audio is mirrored at once instead of at the next sync pass.
+                override fun onPlayWhenReadyChanged(
+                    playWhenReady: Boolean,
+                    reason: Int,
+                ) {
+                    player.playWhenReady =
+                        playWhenReady && isForegroundState.value && audioPlayer.playbackState == Player.STATE_READY
+                }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    player.playWhenReady =
+                        audioPlayer.playWhenReady && isForegroundState.value && playbackState == Player.STATE_READY
                 }
             }
         audioPlayer.addListener(audioListener)
@@ -462,23 +525,36 @@ private fun VideoSlot(
     LaunchedEffect(videoPlayer) {
         val video = videoPlayer ?: return@LaunchedEffect
         var lastHardSeekAt = 0L
+        var lastPos = video.currentPosition
+        var lastProgressAt = SystemClock.elapsedRealtime()
         while (isActive) {
             val audioReady = audioPlayer.playbackState == Player.STATE_READY
             val baseSpeed = audioPlayer.playbackParameters.speed
             val drift = video.currentPosition - audioPlayer.currentPosition
+            val now = SystemClock.elapsedRealtime()
 
             val foreground = isForegroundState.value
             video.playWhenReady = foreground && audioPlayer.playWhenReady && audioReady
 
             // In the background the video stays paused and is not chased along (saves data);
             // the first pass after returning re-syncs it with a hard seek.
-            val now = SystemClock.elapsedRealtime()
             if (foreground && audioReady && abs(drift) > HARD_SEEK_DRIFT_MS &&
                 video.playbackState != Player.STATE_BUFFERING &&
                 now - lastHardSeekAt > MIN_HARD_SEEK_INTERVAL_MS
             ) {
                 video.seekTo(audioPlayer.currentPosition)
                 lastHardSeekAt = now
+                lastProgressAt = now
+            }
+
+            // Watchdog: a picture that should be playing but makes no progress is a stalled stream.
+            val position = video.currentPosition
+            if (!hasFrame || !video.playWhenReady || video.playbackState == Player.STATE_ENDED || abs(position - lastPos) > 40) {
+                lastPos = position
+                lastProgressAt = now
+            } else if (now - lastProgressAt > STALL_TIMEOUT_MS) {
+                lastProgressAt = now
+                onErrorState.value("Stalled via ${stream?.clientName}", stream?.clientName.orEmpty(), null, true)
             }
 
             val targetSpeed =

@@ -92,6 +92,9 @@ import com.metrolist.music.constants.SleepTimerFadeOutKey
 import com.metrolist.music.constants.SleepTimerStopAfterCurrentSongKey
 import com.metrolist.music.ui.utils.getLoudnessLevelLabel
 import com.metrolist.music.constants.VolumeBoostKey
+import com.metrolist.music.constants.DownloadVideoKey
+import com.metrolist.music.constants.DownloadVideoQuality
+import com.metrolist.music.constants.DownloadVideoQualityKey
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -139,6 +142,13 @@ fun PlayerSettings(
         LoudnessLevelKey,
         defaultValue = LoudnessLevel.BALANCED,
     )
+
+    val (downloadVideo, onDownloadVideoChange) = rememberPreference(DownloadVideoKey, defaultValue = false)
+    val (downloadVideoQuality, onDownloadVideoQualityChange) = rememberEnumPreference(
+        DownloadVideoQualityKey,
+        defaultValue = DownloadVideoQuality.MAXIMUM
+    )
+    var showDownloadVideoQualityDialog by remember { mutableStateOf(false) }
 
     val (volumeBoostMb, onVolumeBoostChange) = rememberPreference(
         VolumeBoostKey,
@@ -284,6 +294,22 @@ fun PlayerSettings(
         )
     }
 
+    if (showDownloadVideoQualityDialog) {
+        EnumDialog(
+            onDismiss = { showDownloadVideoQualityDialog = false },
+            onSelect = {
+                onDownloadVideoQualityChange(it)
+                showDownloadVideoQualityDialog = false
+            },
+            title = stringResource(R.string.download_video_quality),
+            current = downloadVideoQuality,
+            values = DownloadVideoQuality.values().toList(),
+            valueText = {
+                if (it == DownloadVideoQuality.MAXIMUM) stringResource(R.string.download_video_quality_max) else "${it.maxHeight}p"
+            }
+        )
+    }
+
     if (showVolumeBoostDialog) {
         EnumDialog(
             onDismiss = { showVolumeBoostDialog = false },
@@ -360,6 +386,33 @@ fun PlayerSettings(
                         )
                     },
                     onClick = { showVideoQualityDialog = true }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.download),
+                    title = { Text(stringResource(R.string.download_video)) },
+                    description = { Text(stringResource(R.string.download_video_desc)) },
+                    trailingContent = {
+                        Switch(
+                            checked = downloadVideo,
+                            onCheckedChange = onDownloadVideoChange
+                        )
+                    },
+                    onClick = { onDownloadVideoChange(!downloadVideo) }
+                ))
+                add(Material3SettingsItem(
+                    icon = painterResource(R.drawable.videocam),
+                    title = { Text(stringResource(R.string.download_video_quality)) },
+                    description = {
+                        Text(
+                            if (downloadVideoQuality == DownloadVideoQuality.MAXIMUM) {
+                                stringResource(R.string.download_video_quality_max)
+                            } else {
+                                "${downloadVideoQuality.maxHeight}p"
+                            }
+                        )
+                    },
+                    enabled = downloadVideo,
+                    onClick = { showDownloadVideoQualityDialog = true }
                 ))
                 add(Material3SettingsItem(
                     icon = painterResource(R.drawable.linear_scale),

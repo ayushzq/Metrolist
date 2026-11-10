@@ -25,6 +25,8 @@ import com.metrolist.innertube.YouTube
 import com.metrolist.music.utils.InnerTubeXPlayer
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
+import androidx.media3.datasource.cache.Cache
+import androidx.media3.datasource.cache.CacheDataSource
 
 /**
  * Some YouTube clients only serve bounded byte ranges. This wrapper keeps requesting the next
@@ -194,4 +196,33 @@ internal fun buildVideoMediaSource(stream: InnerTubeXPlayer.VideoStreamData): Me
             dataSourceFactory,
             ExtractorsFactory { arrayOf(MatroskaExtractor(), FragmentedMp4Extractor(), Mp4Extractor()) },
         ).createMediaSource(MediaItem.fromUri(stream.url))
+}
+
+
+/**
+ * Plays a video that was downloaded with its song: every byte is read from the download cache under
+ * [cacheKey]. The address is only a placeholder; nothing is fetched while the file is complete.
+ */
+@UnstableApi
+internal fun buildOfflineVideoMediaSource(
+    cache: Cache,
+    cacheKey: String,
+): MediaSource {
+    val dataSourceFactory =
+        CacheDataSource
+            .Factory()
+            .setCache(cache)
+            .setUpstreamDataSourceFactory(OkHttpDataSource.Factory(VideoHttp.client()))
+            .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+    return ProgressiveMediaSource
+        .Factory(
+            dataSourceFactory,
+            ExtractorsFactory { arrayOf(MatroskaExtractor(), FragmentedMp4Extractor(), Mp4Extractor()) },
+        ).createMediaSource(
+            MediaItem
+                .Builder()
+                .setUri("https://offline.invalid/$cacheKey")
+                .setCustomCacheKey(cacheKey)
+                .build(),
+        )
 }

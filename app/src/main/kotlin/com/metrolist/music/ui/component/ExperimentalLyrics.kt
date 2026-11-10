@@ -130,6 +130,8 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+private const val LYRICS_SEEK_JUMP_MS = 800L
+
 private const val LYRICS_ANCHOR_RATIO = 0.35f
 private val LYRICS_ITEM_FALLBACK_HEIGHT_DP = 68.dp
 private val LYRICS_ITEM_GAP_DP = 16.dp
@@ -356,17 +358,30 @@ fun ExperimentalLyrics(
             val now = System.currentTimeMillis()
             val sliderPosition = sliderPositionProvider()
             isSeeking = sliderPosition != null
-            
+
+            // A jump of the player position that time alone cannot explain is a seek (tap on a line,
+            // song restart, repeat). The scroll target only ever moved forward, so after such a jump
+            // the lyrics stayed stuck on the old line; start over from the new position instead.
+            var positionJumped = false
             val position = if (isSeeking) {
                 sliderPosition!!
             } else {
                 val playerPos = playerConnection.player.currentPosition
+                val speed = playerConnection.player.playbackParameters.speed
+                val isPlayingNow = playerConnection.player.isPlaying
                 if (playerPos != lastPlayerPos) {
+                    val expected = lastPlayerPos + (if (isPlayingNow) ((now - lastUpdateTime) * speed).toLong() else 0L)
+                    if (abs(playerPos - expected) > LYRICS_SEEK_JUMP_MS) positionJumped = true
                     lastPlayerPos = playerPos
                     lastUpdateTime = now
                 }
-                val elapsed = now - lastUpdateTime
-                lastPlayerPos + (if (playerConnection.player.isPlaying) elapsed else 0)
+                val elapsed = ((now - lastUpdateTime) * speed).toLong()
+                lastPlayerPos + (if (isPlayingNow) elapsed else 0)
+            }
+            if (positionJumped) {
+                scrollTargetIndex = -1
+                lastMainMaxSeen = -1
+                previousScrollActiveIndices = emptySet()
             }
             
             currentPositionState = position

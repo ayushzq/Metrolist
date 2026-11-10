@@ -1043,4 +1043,8 @@
     <string name="trending_artists_first">Artists you want to hear first</string>
     <string name="trending_done">Done</string>
     <string name="trending_reason_picked">You picked %1$s</string>
+    <string name="download_video">Download video with songs</string>
+    <string name="download_video_desc">Also saves the video of a song when you download it, so it plays offline. Uses more storage.</string>
+    <string name="download_video_quality">Downloaded video quality</string>
+    <string name="download_video_quality_max">Maximum available</string>
 </resources>

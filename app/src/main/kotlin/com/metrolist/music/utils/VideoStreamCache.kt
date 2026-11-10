@@ -24,6 +24,8 @@ import com.metrolist.innertubex.extraction.ContentHints
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.cancelChildren
+import com.metrolist.music.constants.DownloadVideoQuality
+import com.metrolist.music.constants.DownloadVideoQualityKey
 
 /**
  * Keeps resolved video streams so the player never repeats the slow part (counterpart lookup +
@@ -43,8 +45,14 @@ object VideoStreamCache {
     private const val VIDEO_PREFS = "video_stream_prefs"
 
     // Clients that answer a video request without a PO token, asked all at once (see raceClients).
-    private val RACE_CLIENTS =
-        listOf("WEB_EMBEDDED_PLAYER", "TVHTML5_DOWNGRADED", "WEB_KIDS", "ANDROID_VR_1_43_32", "VISIONOS")
+    private val RACE_CLIENTS = listOf("WEB_EMBEDDED_PLAYER", "TVHTML5_DOWNGRADED", "WEB_KIDS")
+
+    // These answer fast but are known to stall or return 403 shortly after the picture starts
+    // (the library's own notes), which froze the video on some songs. Only used when nothing else answers.
+    private val FALLBACK_CLIENTS = listOf("ANDROID_VR_1_43_32", "VISIONOS")
+
+    /** Stand-in client name for a video that is played from the offline download. */
+    const val OFFLINE_CLIENT = "OFFLINE"
     private const val RACE_TIMEOUT_MS = 8_000L
     private const val AUTO_RESOLVE_TIMEOUT_MS = 20_000L
     private const val PREFS_NAME = "video_counterparts"
@@ -152,9 +160,9 @@ object VideoStreamCache {
         val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         val videoId = if (followCounterpart) counterpartId(appContext, mediaId) ?: mediaId else mediaId
         val failedClients = InnerTubeXPlayer.failedStreamClients(videoId)
-        val candidates = RACE_CLIENTS.filter { it !in excluded && it !in failedClients }
         val stream =
-            raceClients(appContext, videoId, connectivityManager, candidates)
+            raceClients(appContext, videoId, connectivityManager, RACE_CLIENTS.filter { it !in excluded && it !in failedClients })
+                ?: raceClients(appContext, videoId, connectivityManager, FALLBACK_CLIENTS.filter { it !in excluded && it !in failedClients })
                 ?: return Result.failure(IllegalStateException("No other video client answered"))
         return Result.success(Resolved(videoId, stream, expiryOf(stream.url)))
     }
@@ -169,9 +177,10 @@ object VideoStreamCache {
         videoId: String,
         connectivityManager: ConnectivityManager,
         candidates: List<String>,
+        allowHls: Boolean = true,
+        height: Int = maxHeightFor(context),
     ): InnerTubeXPlayer.VideoStreamData? {
         if (candidates.isEmpty()) return null
-        val height = maxHeightFor(context)
         return withTimeoutOrNull(RACE_TIMEOUT_MS) {
             coroutineScope {
                 val answers = Channel<InnerTubeXPlayer.VideoStreamData?>(candidates.size)
@@ -183,7 +192,7 @@ object VideoStreamCache {
                                     videoId = videoId,
                                     maxVideoHeight = height,
                                     connectivityManager = connectivityManager,
-                                    allowHls = true,
+                                    allowHls = allowHls,
                                     contentHints = ContentHints(playbackClientOverrideId = client),
                                 )
                             }.getOrNull()?.getOrNull()
@@ -198,6 +207,44 @@ object VideoStreamCache {
                 this.coroutineContext.cancelChildren()
                 winner
             }
+        }
+    }
+
+    /** Height cap for downloaded videos: the user's download quality, "Maximum" meaning 4K. */
+    fun downloadHeight(context: Context): Int {
+        val name = context.applicationContext.dataStore.get(DownloadVideoQualityKey, DownloadVideoQuality.MAXIMUM.name)
+        return DownloadVideoQuality.values().firstOrNull { it.name == name }?.maxHeight ?: DownloadVideoQuality.MAXIMUM.maxHeight
+    }
+
+    /**
+     * A progressive (non-HLS) video stream to download for [songId]; HLS cannot be stored as one file.
+     * Slower than playback lookups is fine here, it still gets a hard time limit.
+     */
+    suspend fun resolveForDownload(
+        context: Context,
+        songId: String,
+    ): Result<InnerTubeXPlayer.VideoStreamData> {
+        val appContext = context.applicationContext
+        val connectivityManager = appContext.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val videoId = counterpartId(appContext, songId) ?: songId
+        val height = downloadHeight(appContext)
+        val failedClients = InnerTubeXPlayer.failedStreamClients(videoId)
+        val stream =
+            raceClients(appContext, videoId, connectivityManager, RACE_CLIENTS.filter { it !in failedClients }, allowHls = false, height = height)
+                ?: raceClients(appContext, videoId, connectivityManager, FALLBACK_CLIENTS.filter { it !in failedClients }, allowHls = false, height = height)
+                ?: withTimeoutOrNull(60_000L) {
+                    InnerTubeXPlayer
+                        .videoStreamForPlayback(
+                            videoId = videoId,
+                            maxVideoHeight = height,
+                            connectivityManager = connectivityManager,
+                            allowHls = false,
+                        ).getOrNull()
+                }
+        return if (stream != null && !stream.isHls) {
+            Result.success(stream)
+        } else {
+            Result.failure(IllegalStateException("No downloadable video stream"))
         }
     }
 
@@ -274,7 +321,9 @@ object VideoStreamCache {
             (listOfNotNull(preferredClient(context)?.first) + RACE_CLIENTS)
                 .distinct()
                 .filter { it !in failedClients }
-        val raced = raceClients(context, videoId, connectivityManager, candidates)
+        val raced =
+            raceClients(context, videoId, connectivityManager, candidates)
+                ?: raceClients(context, videoId, connectivityManager, FALLBACK_CLIENTS.filter { it !in failedClients })
         val result =
             if (raced != null) {
                 Result.success(raced)

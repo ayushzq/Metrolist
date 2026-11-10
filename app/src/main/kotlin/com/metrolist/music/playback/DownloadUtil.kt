@@ -61,6 +61,14 @@ import java.time.LocalDateTime
 import java.util.concurrent.Executor
 import javax.inject.Inject
 import javax.inject.Singleton
+import com.metrolist.music.constants.DownloadVideoKey
+import com.metrolist.music.utils.VideoStreamCache
+import com.metrolist.music.utils.dataStore
+import com.metrolist.music.utils.get
+import androidx.media3.datasource.DataSpec
+
+/** Download ids of videos saved next to a song are this prefix plus the song id. */
+internal const val VIDEO_DOWNLOAD_PREFIX = "video:"
 
 @Singleton
 class DownloadUtil
@@ -91,6 +99,40 @@ constructor(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val downloadPreparations = Semaphore(3)
 
+    // Resolved video streams for running video downloads (looked up once, reused for every read).
+    private val videoDownloadStreams = java.util.concurrent.ConcurrentHashMap<String, Pair<Long, InnerTubeXPlayer.VideoStreamData>>()
+
+    private fun resolveVideoDownload(
+        cacheKey: String,
+        dataSpec: DataSpec,
+    ): DataSpec {
+        val songId = cacheKey.removePrefix(VIDEO_DOWNLOAD_PREFIX)
+        val now = System.currentTimeMillis()
+        val cached = videoDownloadStreams[cacheKey]?.takeIf { now - it.first < 10 * 60 * 1000L }?.second
+        val stream =
+            cached ?: runBlocking(Dispatchers.IO) { VideoStreamCache.resolveForDownload(context, songId) }
+                .getOrThrow()
+                .also { videoDownloadStreams[cacheKey] = now to it }
+        val length = stream.contentLengthBytes
+        // Same trick as for songs: a range covering the whole file lets the download run at full speed.
+        val url =
+            if (length != null && length > 0L && "&range=" !in stream.url) {
+                "${stream.url}&range=0-${length - 1}"
+            } else {
+                stream.url
+            }
+        return dataSpec.withResolvedStream(
+            CachedStreamUrl(
+                url = url,
+                requestHeaders = stream.headers,
+                clientName = stream.clientName,
+                requireBoundedRange = stream.requireBoundedRange,
+                rangeChunkSizeBytes = stream.rangeChunkSizeBytes,
+                useRangeChunks = stream.useRangeChunks,
+            ),
+        )
+    }
+
     val downloads = MutableStateFlow<Map<String, Download>>(emptyMap())
 
     private val dataSourceFactory =
@@ -104,6 +146,9 @@ constructor(
                 ),
         ) { dataSpec ->
             val mediaId = dataSpec.key ?: error("No media id")
+            if (mediaId.startsWith(VIDEO_DOWNLOAD_PREFIX)) {
+                return@Factory resolveVideoDownload(mediaId, dataSpec)
+            }
             val length = if (dataSpec.length >= 0) dataSpec.length else 1
 
             if (playerCache.isCached(mediaId, dataSpec.position, length)) {
@@ -250,6 +295,14 @@ constructor(
                         download: Download,
                         finalException: Exception?,
                     ) {
+                        if (download.request.id.startsWith(VIDEO_DOWNLOAD_PREFIX)) {
+                            // A saved video is not a song: keep it out of the database bookkeeping below.
+                            if (download.state == Download.STATE_FAILED) videoDownloadStreams.remove(download.request.id)
+                            downloads.update { map ->
+                                map.toMutableMap().apply { set(download.request.id, download) }
+                            }
+                            return
+                        }
                         if (download.state == Download.STATE_FAILED && finalException.isExpiredStreamError()) {
                             songUrlCache.invalidate(download.request.id)
                         }
@@ -282,7 +335,21 @@ constructor(
                         download: Download,
                     ) {
                         val downloadId = download.request.id
+                        if (downloadId.startsWith(VIDEO_DOWNLOAD_PREFIX)) {
+                            videoDownloadStreams.remove(downloadId)
+                            downloads.update { map -> map.toMutableMap().apply { remove(downloadId) } }
+                            return
+                        }
                         songUrlCache.invalidate(downloadId)
+                        // Removing a song also removes the video that was saved with it.
+                        runCatching {
+                            DownloadService.sendRemoveDownload(
+                                context,
+                                ExoDownloadService::class.java,
+                                VIDEO_DOWNLOAD_PREFIX + downloadId,
+                                false,
+                            )
+                        }
 
                         runCatching {
                             database.updateDownloadedInfo(downloadId, false, null)
@@ -369,6 +436,23 @@ constructor(
                     request,
                     false,
                 )
+
+                // "Download video with songs": the video goes into the same download list under its own id.
+                if (context.dataStore.get(DownloadVideoKey, false)) {
+                    val videoDownloadId = VIDEO_DOWNLOAD_PREFIX + mediaMetadata.id
+                    if (shouldPrepareDownload(downloads.value[videoDownloadId]?.state)) {
+                        DownloadService.sendAddDownload(
+                            context,
+                            ExoDownloadService::class.java,
+                            DownloadRequest
+                                .Builder(videoDownloadId, videoDownloadId.toUri())
+                                .setCustomCacheKey(videoDownloadId)
+                                .setData(mediaMetadata.title.toByteArray())
+                                .build(),
+                            false,
+                        )
+                    }
+                }
 
                 val albumArtwork = database.getSongByIdBlocking(mediaMetadata.id)?.album?.thumbnailUrl
                 downloadArtworkUrls(mediaMetadata.thumbnailUrl, albumArtwork).forEach { artworkUrl ->
