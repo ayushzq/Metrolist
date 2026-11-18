@@ -497,10 +497,6 @@ fun SongListItem(
         if (song.song.explicit) {
             Icon.Explicit()
         }
-        // Apple style rows only show the heart, "E" and download state
-        if (!LocalIosStyle.current && !song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
-            Icon.VersionBadge(if (song.song.isVideo) SongVersion.ALTERNATE else SongVersion.OFFICIAL)
-        }
         if (showInLibraryIcon && song.song.inLibrary != null) {
             Icon.Library()
         }
@@ -590,10 +586,6 @@ fun SongGridItem(
     badges: @Composable RowScope.() -> Unit = {
         if (showLikedIcon && song.song.liked) {
             Icon.Favorite()
-        }
-        // Apple style rows only show the heart, "E" and download state
-        if (!LocalIosStyle.current && !song.song.isEpisode && !song.song.isUploaded && !song.song.isLocal) {
-            Icon.VersionBadge(if (song.song.isVideo) SongVersion.ALTERNATE else SongVersion.OFFICIAL)
         }
         if (showInLibraryIcon && song.song.inLibrary != null) {
             Icon.Library()
@@ -1088,7 +1080,6 @@ fun MediaMetadataListItem(
         title = mediaMetadata.title,
         subtitle = {
             if (mediaMetadata.explicit) Icon.Explicit()
-            songVersionOf(mediaMetadata.musicVideoType, mediaMetadata.isEpisode)?.let { Icon.VersionBadge(it) }
             Text(
                 text = buildAnnotatedString {
                     val base = joinByBullet(
@@ -1153,9 +1144,6 @@ fun YouTubeListItem(
             Icon.Favorite()
         }
         if (item.explicit) Icon.Explicit()
-        if (item is SongItem) {
-            songVersionOf(item.musicVideoType, item.isEpisode)?.let { Icon.VersionBadge(it) }
-        }
         // if (item is SongItem && song?.song?.inLibrary != null) {
         //     Icon.Library()
         // }
@@ -1268,9 +1256,6 @@ fun YouTubeGridItem(
             Icon.Favorite()
         }
         if (item.explicit) Icon.Explicit()
-        if (item is SongItem) {
-            songVersionOf(item.musicVideoType, item.isEpisode)?.let { Icon.VersionBadge(it) }
-        }
         // if (item is SongItem && song?.song?.inLibrary != null) Icon.Library()
         if (item is SongItem) {
             val download by LocalDownloadUtil.current.getDownload(item.id).collectAsStateWithLifecycle(null)

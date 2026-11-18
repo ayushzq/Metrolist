@@ -281,7 +281,7 @@ object SearchPage {
                                             ?.runs
                                             .orEmpty()
                                     },
-                            ).firstOrNull(),
+                            ).firstOrNull() ?: PlaylistPage.ownerFromByline(secondaryLine.dropLast(1).lastOrNull()),
                     songCountText =
                         renderer.flexColumns
                             .getOrNull(1)
