@@ -8,120 +8,90 @@ on:
       - "README.md"
       - "fastlane/**"
       - "assets/**"
+      - "docs/**"
       - ".github/**/*.md"
-      - ".github/FUNDING.yml"
-      - ".github/ISSUE_TEMPLATE/**"
 
 permissions:
   contents: write
-  discussions: write
 
 jobs:
   build_release:
-    name: Build Release (${{ matrix.variant }})
+    name: Build Release (v14)
     if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
     runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        include:
-          - variant: foss
-            variantName: Foss
-          - variant: gms
-            variantName: Gms
+    timeout-minutes: 90
 
     steps:
+      # The opus decoder and the protobuf schemas are git submodules
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      # --- FIXED: JDK 21 se JDK 17 par switch kiya stable signing ke liye ---
-      - name: Set up JDK 17
+      # The v14 code base needs JDK 21
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
-          java-version: "17"
+          java-version: "21"
           distribution: "temurin"
 
-      # --- FIXED: Gradle actions update ---
       - name: Set Up Gradle
-        uses: gradle/actions/setup-gradle@v3
+        uses: gradle/actions/setup-gradle@v4
         with:
           cache-cleanup: on-success
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
-      # --- FIXED: Extension ko .keystore se badal kar .jks kiya (Jo tumne Termux me banayi thi) ---
+      # The opus decoder is built natively, so the NDK version of the project must be present
+      - name: Install Android NDK
+        continue-on-error: true
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"
+
       - name: Create Keystore Directory
-        run: mkdir -p app/keystore
+        run: mkdir -p androidApp/keystore
 
       - name: Decode Keystore
-        run: echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > app/keystore/release.jks
+        run: echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > androidApp/keystore/release.jks
 
-      # --- Build Step ---
       - name: Build Release APK
-        run: ./gradlew --console=plain assemble${{ matrix.variantName }}Release --warning-mode summary
+        run: ./gradlew --console=plain :androidApp:assembleRelease --warning-mode summary
         env:
           METROLIST_APPLICATION_ID: com.gaana
           METROLIST_APP_NAME: Gaana
-          PULL_REQUEST: "false"
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
           LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
           LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
-          STORE_PASSWORD: ${{ secrets.STORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
-      # --- FIXED: Naya .jks extension paths ke saath apksigner loop ---
+      # The release APKs come out unsigned: align and sign them with the same key as the Gaana app
       - name: Sign APKs
         run: |
           BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
-          for apk in $(find app/build/outputs/apk/${{ matrix.variant }}/release -type f -name '*.apk'); do
+          for apk in $(find androidApp/build/outputs/apk/release -type f -name '*.apk'); do
             if [[ "$apk" == *"-aligned.apk" || "$apk" == *"-signed.apk" ]]; then
               continue
             fi
             echo "Signing $apk"
             $BUILD_TOOLS/zipalign -f -p 4 "$apk" "${apk%.apk}-aligned.apk"
-            $BUILD_TOOLS/apksigner sign --ks app/keystore/release.jks --ks-pass pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias ${{ secrets.KEY_ALIAS }} --key-pass pass:${{ secrets.KEY_PASSWORD }} "${apk%.apk}-aligned.apk"
+            $BUILD_TOOLS/apksigner sign --ks androidApp/keystore/release.jks --ks-pass pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias ${{ secrets.KEY_ALIAS }} --key-pass pass:${{ secrets.KEY_PASSWORD }} "${apk%.apk}-aligned.apk"
             rm "$apk"
             mv "${apk%.apk}-aligned.apk" "${apk%.apk}-signed.apk"
           done
 
-      # --- Sabhi APKs ko Alag-Alag Upload Karna ---
-      
       - name: Upload arm64-v8a APK (BEST FOR VIVO T4X)
         uses: actions/upload-artifact@v4
         with:
-          name: Gaana-${{ matrix.variantName }}-arm64-v8a
-          path: app/build/outputs/apk/${{ matrix.variant }}/release/*arm64-v8a*-signed.apk
+          name: Gaana-v14-arm64-v8a
+          path: androidApp/build/outputs/apk/release/*arm64-v8a*-signed.apk
           if-no-files-found: ignore
 
-      - name: Upload armeabi-v7a APK
+      - name: Upload all signed APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Gaana-${{ matrix.variantName }}-armeabi-v7a
-          path: app/build/outputs/apk/${{ matrix.variant }}/release/*armeabi-v7a*-signed.apk
-          if-no-files-found: ignore
-
-      - name: Upload x86 APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Gaana-${{ matrix.variantName }}-x86
-          path: app/build/outputs/apk/${{ matrix.variant }}/release/*x86*-signed.apk
-          if-no-files-found: ignore
-
-      - name: Upload Universal APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: Gaana-${{ matrix.variantName }}-Universal
-          path: |
-            app/build/outputs/apk/${{ matrix.variant }}/release/*-signed.apk
-            !app/build/outputs/apk/${{ matrix.variant }}/release/*arm64-v8a*.apk
-            !app/build/outputs/apk/${{ matrix.variant }}/release/*armeabi-v7a*.apk
-            !app/build/outputs/apk/${{ matrix.variant }}/release/*x86*.apk
+          name: Gaana-v14-All
+          path: androidApp/build/outputs/apk/release/*-signed.apk
           if-no-files-found: warn
 
-      # --- YAHAN NAYA TELEGRAM BOT AUR DOWNLOAD LINK ADD KIYA HAI ---
       - name: Send Telegram Message with Download Link
         continue-on-error: true
         uses: appleboy/telegram-action@master
@@ -129,26 +99,21 @@ jobs:
           to: ${{ secrets.TELEGRAM_TO }}
           token: ${{ secrets.TELEGRAM_TOKEN }}
           message: |
-            ✅ Metrolist (Gaana) Build Successful!
-            
+            ✅ Metrolist v14 (Gaana) Build Successful!
+
             Commit: ${{ github.event.commits[0].message }}
-            Variant: ${{ matrix.variantName }}
-            
+
             👇 Yahan click karke direct Artifacts (APK) download karein:
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-      # --- YAHAN TUMHARI BASEKEY WHATSAPP API INTEGRATION ADD KI HAI ---
       - name: Send WhatsApp Notification via BaseKey
-        if: always() # Build pass ho ya fail, ye step hamesha chalega
+        if: always()
         run: |
-          # 1. Status set karna (Success / Failed)
           if [ "${{ job.status }}" = "success" ]; then
             BUILD_STATUS="Success ✅"
           else
             BUILD_STATUS="Failed ❌"
           fi
-
-          # 2. BaseKey API ko 3 variables bhej rahe hain
           curl -X POST https://superkey-app.vercel.app/api/v1/trigger \
             -H "Authorization: Bearer ${{ secrets.BASEKEY_API_KEY }}" \
             -H "Content-Type: application/json" \
@@ -156,8 +121,8 @@ jobs:
               \"template\": \"apk_build_status\",
               \"phone\": \"${{ secrets.MY_PHONE_NUMBER }}\",
               \"variables\": [
-                \"${{ github.repository }} (${{ matrix.variantName }})\", 
-                \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\", 
+                \"${{ github.repository }} (v14)\",
+                \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
                 \"$BUILD_STATUS\"
               ]
             }"
