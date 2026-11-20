@@ -1,0 +1,128 @@
+name: Build APKs
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["**"]
+    paths-ignore:
+      - "README.md"
+      - "fastlane/**"
+      - "assets/**"
+      - "docs/**"
+      - ".github/**/*.md"
+
+permissions:
+  contents: write
+
+jobs:
+  build_release:
+    name: Build Release (v14)
+    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      # The opus decoder and the protobuf schemas are git submodules
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The v14 code base needs JDK 21
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      # The opus decoder is built natively, so the NDK version of the project must be present
+      - name: Install Android NDK
+        continue-on-error: true
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"
+
+      - name: Create Keystore Directory
+        run: mkdir -p androidApp/keystore
+
+      - name: Decode Keystore
+        run: echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > androidApp/keystore/release.jks
+
+      - name: Build Release APK
+        run: ./gradlew --console=plain :androidApp:assembleRelease --warning-mode summary
+        env:
+          METROLIST_APPLICATION_ID: com.gaana
+          METROLIST_APP_NAME: Gaana
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+
+      # The release APKs come out unsigned: align and sign them with the same key as the Gaana app
+      - name: Sign APKs
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
+          for apk in $(find androidApp/build/outputs/apk/release -type f -name '*.apk'); do
+            if [[ "$apk" == *"-aligned.apk" || "$apk" == *"-signed.apk" ]]; then
+              continue
+            fi
+            echo "Signing $apk"
+            $BUILD_TOOLS/zipalign -f -p 4 "$apk" "${apk%.apk}-aligned.apk"
+            $BUILD_TOOLS/apksigner sign --ks androidApp/keystore/release.jks --ks-pass pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias ${{ secrets.KEY_ALIAS }} --key-pass pass:${{ secrets.KEY_PASSWORD }} "${apk%.apk}-aligned.apk"
+            rm "$apk"
+            mv "${apk%.apk}-aligned.apk" "${apk%.apk}-signed.apk"
+          done
+
+      - name: Upload arm64-v8a APK (BEST FOR VIVO T4X)
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaana-v14-arm64-v8a
+          path: androidApp/build/outputs/apk/release/*arm64-v8a*-signed.apk
+          if-no-files-found: ignore
+
+      - name: Upload all signed APKs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Gaana-v14-All
+          path: androidApp/build/outputs/apk/release/*-signed.apk
+          if-no-files-found: warn
+
+      - name: Send Telegram Message with Download Link
+        continue-on-error: true
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            ✅ Metrolist v14 (Gaana) Build Successful!
+
+            Commit: ${{ github.event.commits[0].message }}
+
+            👇 Yahan click karke direct Artifacts (APK) download karein:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Send WhatsApp Notification via BaseKey
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            BUILD_STATUS="Success ✅"
+          else
+            BUILD_STATUS="Failed ❌"
+          fi
+          curl -X POST https://superkey-app.vercel.app/api/v1/trigger \
+            -H "Authorization: Bearer ${{ secrets.BASEKEY_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"template\": \"apk_build_status\",
+              \"phone\": \"${{ secrets.MY_PHONE_NUMBER }}\",
+              \"variables\": [
+                \"${{ github.repository }} (v14)\",
+                \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+                \"$BUILD_STATUS\"
+              ]
+            }"

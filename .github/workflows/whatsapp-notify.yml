@@ -1,0 +1,47 @@
+name: Manual WhatsApp Build Notification
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_status:
+        description: 'Build Status (success / failed)'
+        required: true
+        default: 'success'
+        type: choice
+        options:
+          - success
+          - failed
+          - in-progress
+
+jobs:
+  notify_whatsapp:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Ek extra check laga sakte ho taaki bina token aage badhe hi nahi
+      - name: Check if Secrets are set
+        run: |
+          if [ -z "${{ secrets.BASEKEY_API_TOKEN }}" ]; then
+            echo "Error: BASEKEY_API_TOKEN secret is missing!"
+            exit 1 # Yeh action ko fail kar dega
+          fi
+          if [ -z "${{ secrets.WHATSAPP_PHONE_NUMBER }}" ]; then
+            echo "Error: WHATSAPP_PHONE_NUMBER secret is missing!"
+            exit 1
+          fi
+
+      # Step 2: curl command with -f flag
+      - name: Send WhatsApp Notification via BaseKey API
+        run: |
+          curl -f -X POST https://basekey.in/api/v1/trigger \
+            -H "Authorization: Bearer ${{ secrets.BASEKEY_API_TOKEN }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "template": "apk_build_status",
+              "phone": "${{ secrets.WHATSAPP_PHONE_NUMBER }}",
+              "variables": [
+                "${{ github.repository }}", 
+                "${{ github.ref_name }}", 
+                "${{ inputs.build_status }}"
+              ]
+            }'

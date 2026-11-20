@@ -252,7 +252,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.metrolist.music"
+        applicationId = System.getenv("METROLIST_APPLICATION_ID") ?: "com.metrolist.music"
         minSdk = 24
         targetSdk = 37
         versionCode = 154
@@ -293,7 +293,7 @@ android {
             isShrinkResources = true
             ndk.debugSymbolLevel = "FULL"
             optimization.keepRules { ignoreFrom("com.materialkolor:material-kolor-android:5.0.1") }
-            manifestPlaceholders["appLabel"] = "Metrolist"
+            manifestPlaceholders["appLabel"] = System.getenv("METROLIST_APP_NAME") ?: "Metrolist"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

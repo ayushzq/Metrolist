@@ -116,13 +116,16 @@ fun MetrolistTheme(
             }
         }
 
+    val iosStyle = Settings.shared.iosStyle
     val colorScheme =
-        remember(baseColorScheme, pureBlack, darkTheme) {
-            if (darkTheme && pureBlack) {
-                baseColorScheme.pureBlack()
-            } else {
-                baseColorScheme
-            }
+        remember(baseColorScheme, pureBlack, darkTheme, iosStyle) {
+            val scheme =
+                if (darkTheme && pureBlack) {
+                    baseColorScheme.pureBlack()
+                } else {
+                    baseColorScheme
+                }
+            if (iosStyle) iosColorScheme(scheme, darkTheme) else scheme
         }
 
     val motionScheme = remember { MotionScheme.expressive() }
@@ -136,7 +139,7 @@ fun MetrolistTheme(
     MaterialExpressiveTheme(
         colorScheme = animatedColorScheme,
         typography = getAppTypography(),
-        shapes = MetrolistShapes,
+        shapes = if (iosStyle) IosShapes else MetrolistShapes,
         motionScheme = motionScheme,
     ) {
         CompositionLocalProvider(LocalIsTv provides isTv) {

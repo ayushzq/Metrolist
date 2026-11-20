@@ -121,6 +121,12 @@ internal fun SettingsUiRegistryBuilder.registerAppearanceSettings(host: SharedSe
                 description = stringResource(Res.string.ui_enhancements_description),
                 checked = settings.uiEnhancements,
             ) { settings.uiEnhancements = it }
+            switch(
+                id = "iosStyle",
+                title = stringResource(Res.string.ios_style),
+                description = stringResource(Res.string.ios_style_description),
+                checked = settings.iosStyle,
+            ) { settings.iosStyle = it }
             if (!settings.materialYouEnabled) {
                 custom(
                     id = "themeColor",

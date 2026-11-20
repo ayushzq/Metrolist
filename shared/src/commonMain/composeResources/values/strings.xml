@@ -5508,4 +5508,6 @@
     <string name="ai_setup_privacy_settings">Open privacy settings</string>
     <string name="ai_setup_sign_in_again">Sign in again</string>
     <string name="ai_setup_key_limits">Review key limits</string>
+    <string name="ios_style">iOS style</string>
+    <string name="ios_style_description">Apple Music inspired colours, rounder shapes and bold titles. Turn off for the standard look.</string>
 </resources>

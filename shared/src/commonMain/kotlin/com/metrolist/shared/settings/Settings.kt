@@ -311,6 +311,7 @@ class Settings(
     var dynamicTheme by preference(true)
     var themeMode by preference(ThemeMode.AUTO)
     var autoPureBlack by preference(AutoPureBlackKey, false)
+    var iosStyle by preference(false)
     var selectedThemeColor by preference(0L)
     var themePaletteStyle by preference(ThemePaletteStyle.TONAL_SPOT)
 
@@ -1417,6 +1418,7 @@ internal val retiredPortableSettingTypes =
         "autoPlayMusicVideos" to SettingType.BOOLEAN,
         "resumeOnBluetoothConnect" to SettingType.BOOLEAN,
         "pureBlack" to SettingType.BOOLEAN,
+        "iosStyle" to SettingType.BOOLEAN,
         "desktopSidebarExpanded" to SettingType.BOOLEAN,
         "discordRpcActivityType" to SettingType.STRING,
         "discordRpcAppId" to SettingType.STRING,
