@@ -119,8 +119,8 @@ enum class UpdateFailure { CHECK, NO_APK, DOWNLOAD, DIGEST, INSTALL }
 
 object AppUpdateManager {
     const val CHANNEL_ID = "updates"
-    private const val RELEASES_URL = "https://api.github.com/repos/MetrolistGroup/Metrolist/releases?per_page=50"
-    private const val NIGHTLY_RELEASE_URL = "https://api.github.com/repos/MetrolistGroup/Metrolist/releases/tags/$NIGHTLY_TAG"
+    private const val RELEASES_URL = "https://api.github.com/repos/ayushzq/Metrolist/releases?per_page=50"
+    private const val NIGHTLY_RELEASE_URL = "https://api.github.com/repos/ayushzq/Metrolist/releases/tags/$NIGHTLY_TAG"
     private const val NOTIFICATION_ID = 1400
     private const val MAX_APK_BYTES = 512L * 1024 * 1024
     private const val MIN_FREE_SPACE_BYTES = 16L * 1024 * 1024
@@ -208,7 +208,7 @@ object AppUpdateManager {
                             .url(RELEASES_URL)
                             .header("Accept", "application/vnd.github+json")
                             .header("X-GitHub-Api-Version", "2022-11-28")
-                            .header("User-Agent", "Metrolist/${BuildConfig.VERSION_NAME}")
+                            .header("User-Agent", "Gaana/${BuildConfig.VERSION_NAME}")
                             .build()
                     val allReleases =
                         client.newCall(request).execute().use { response ->
@@ -266,7 +266,7 @@ object AppUpdateManager {
                 .url(NIGHTLY_RELEASE_URL)
                 .header("Accept", "application/vnd.github+json")
                 .header("X-GitHub-Api-Version", "2022-11-28")
-                .header("User-Agent", "Metrolist/${BuildConfig.VERSION_NAME}")
+                .header("User-Agent", "Gaana/${BuildConfig.VERSION_NAME}")
                 .build()
         return client
             .newCall(request)
@@ -307,7 +307,7 @@ object AppUpdateManager {
                     Request
                         .Builder()
                         .url(asset.downloadUrl)
-                        .header("User-Agent", "Metrolist/${BuildConfig.VERSION_NAME}")
+                        .header("User-Agent", "Gaana/${BuildConfig.VERSION_NAME}")
                         .build()
                 var downloaded = 0L
                 val call = client.newCall(request).also { activeDownload = it }
@@ -594,9 +594,10 @@ object AppUpdateManager {
 }
 
 private const val CHECK_INTERVAL_MILLIS = 60 * 60 * 1_000L
-private const val CACHE_SOURCE = "github-releases-metrolist-v1"
+private const val CACHE_SOURCE = "github-releases-gaana-v1"
 private val PREFERRED_APK_NAMES =
     listOf(
+        "Gaana.apk",
         "Metrolist.apk",
         "Metrolist-Android-release.apk",
         "androidApp-release.apk",

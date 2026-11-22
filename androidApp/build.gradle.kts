@@ -264,7 +264,7 @@ android {
         applicationId = System.getenv("METROLIST_APPLICATION_ID") ?: "com.metrolist.music"
         minSdk = 24
         targetSdk = 37
-        versionCode = 155
+        versionCode = System.getenv("METROLIST_VERSION_CODE")?.toIntOrNull() ?: 155
         versionName = appVersion
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"

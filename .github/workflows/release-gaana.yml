@@ -1,0 +1,155 @@
+name: Release Gaana APK
+
+# Builds the signed APK and publishes it in the Releases section of this repository.
+# The app's built-in updater reads these releases, so every run here shows up in the app as
+# "update available" with a one-tap download and install.
+on:
+  workflow_dispatch:
+    inputs:
+      notes:
+        description: "What is new in this release (shown in the app and on GitHub)"
+        required: false
+        default: ""
+  push:
+    branches: ["main"]
+    paths-ignore:
+      - "README.md"
+      - "fastlane/**"
+      - "assets/**"
+      - "docs/**"
+      - ".github/**/*.md"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-gaana
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish release
+    if: github.actor != 'dependabot[bot]' && github.actor != 'renovate[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # Version: the base from gradle.properties (for example 14.0.1) plus the run number as extra
+      # patch levels, so every release is newer than the one before and the app offers it as an update.
+      # The version code (what Android compares when installing over an existing app) rises the same way.
+      - name: Work out the version
+        id: version
+        run: |
+          BASE=$(grep '^appVersion=' gradle.properties | cut -d= -f2 | tr -d '[:space:]')
+          MAJOR=$(echo "$BASE" | cut -d. -f1)
+          MINOR=$(echo "$BASE" | cut -d. -f2)
+          PATCH=$(echo "$BASE" | cut -d. -f3 | cut -d- -f1)
+          NEW_PATCH=$((PATCH + GITHUB_RUN_NUMBER))
+          VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "code=$((1000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_OUTPUT"
+          echo "Releasing $VERSION (version code $((1000 + GITHUB_RUN_NUMBER)))"
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Set Up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-cleanup: on-success
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Install Android NDK
+        continue-on-error: true
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;30.0.16248370"
+
+      - name: Decode Keystore
+        run: |
+          mkdir -p androidApp/keystore
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > androidApp/keystore/release.jks
+
+      - name: Build Release APK
+        run: ./gradlew --console=plain :androidApp:assembleRelease -PappVersion=${{ steps.version.outputs.version }} --warning-mode summary
+        env:
+          METROLIST_APPLICATION_ID: com.gaana
+          METROLIST_APP_NAME: Gaana
+          METROLIST_VERSION_CODE: ${{ steps.version.outputs.code }}
+          LASTFM_API_KEY: ${{ secrets.LASTFM_API_KEY }}
+          LASTFM_SECRET: ${{ secrets.LASTFM_SECRET }}
+
+      # The release build comes out unsigned: align it and sign it with the same key as the installed app,
+      # otherwise Android refuses to install it over the existing Gaana app.
+      - name: Align and sign
+        run: |
+          BUILD_TOOLS=$(ls -d $ANDROID_HOME/build-tools/* | tail -1)
+          APK=$(find androidApp/build/outputs/apk/release -type f -name '*.apk' | head -1)
+          if [ -z "$APK" ]; then echo "No APK was built"; exit 1; fi
+          echo "Signing $APK"
+          $BUILD_TOOLS/zipalign -f -p 4 "$APK" Gaana-aligned.apk
+          $BUILD_TOOLS/apksigner sign --ks androidApp/keystore/release.jks --ks-pass pass:${{ secrets.STORE_PASSWORD }} --ks-key-alias ${{ secrets.KEY_ALIAS }} --key-pass pass:${{ secrets.KEY_PASSWORD }} Gaana-aligned.apk
+          $BUILD_TOOLS/apksigner verify Gaana-aligned.apk
+          # The in-app updater looks for exactly this file name
+          mv Gaana-aligned.apk Gaana.apk
+          ls -l Gaana.apk
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          name: Gaana ${{ steps.version.outputs.version }}
+          body: |
+            ${{ github.event.inputs.notes }}
+
+            Commit: ${{ github.sha }}
+            ${{ github.event.head_commit.message }}
+          generate_release_notes: false
+          make_latest: true
+          prerelease: false
+          draft: false
+          files: Gaana.apk
+          fail_on_unmatched_files: true
+
+      - name: Send Telegram Message
+        continue-on-error: true
+        uses: appleboy/telegram-action@master
+        with:
+          to: ${{ secrets.TELEGRAM_TO }}
+          token: ${{ secrets.TELEGRAM_TOKEN }}
+          message: |
+            🚀 Gaana ${{ steps.version.outputs.version }} release ho gaya!
+
+            App kholo, Settings me "Update" se ek click me update karo.
+            https://github.com/${{ github.repository }}/releases/tag/v${{ steps.version.outputs.version }}
+
+      - name: Send WhatsApp Notification via BaseKey
+        if: always()
+        run: |
+          if [ "${{ job.status }}" = "success" ]; then
+            BUILD_STATUS="Release Success ✅"
+          else
+            BUILD_STATUS="Release Failed ❌"
+          fi
+          curl -X POST https://superkey-app.vercel.app/api/v1/trigger \
+            -H "Authorization: Bearer ${{ secrets.BASEKEY_API_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"template\": \"apk_build_status\",
+              \"phone\": \"${{ secrets.MY_PHONE_NUMBER }}\",
+              \"variables\": [
+                \"${{ github.repository }} (release ${{ steps.version.outputs.version }})\",
+                \"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}\",
+                \"$BUILD_STATUS\"
+              ]
+            }"

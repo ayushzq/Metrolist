@@ -3,7 +3,8 @@ name: Build APKs
 on:
   workflow_dispatch:
   push:
-    branches: ["**"]
+    # main is built and published by release-gaana.yml
+    branches-ignore: ["main"]
     paths-ignore:
       - "README.md"
       - "fastlane/**"
