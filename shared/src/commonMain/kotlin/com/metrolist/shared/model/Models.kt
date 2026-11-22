@@ -46,10 +46,12 @@ data class SongItem(
     val customArtist: String? = null,
     val canonicalTitle: String? = null,
     val canonicalArtists: List<ArtistTiny>? = null,
+    val originalQueueItemId: String? = null,
     val explicitness: Boolean? = null,
     override val libraryAddedAt: Long? = null,
     override val libraryUpdatedAt: Long? = null,
     val playlistLocalMappingId: Int? = null,
+    val playlistOccurrenceId: String? = null,
     val playbackPositionMs: Long? = null,
     val playbackProgressPercent: Int? = null,
     override val isUnavailable: Boolean = false,
@@ -201,6 +203,10 @@ fun YTItem.isAvailableOffline(cachedSongIds: Set<String>): Boolean =
         is EpisodeItem -> id in cachedSongIds
         else -> true
     }
+
+// A downloaded copy plays without YouTube, so the account's regional unavailability does not apply to it.
+fun List<SongItem>.withDownloadsPlayable(downloadedSongIds: Set<String>): List<SongItem> =
+    map { if (it.isUnavailable && it.id in downloadedSongIds) it.copy(isUnavailable = false) else it }
 
 fun EpisodeItem.toSongItem(podcastTitle: String? = null): SongItem =
     SongItem(

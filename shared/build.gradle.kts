@@ -26,6 +26,7 @@ import java.util.Base64
 import java.util.Locale
 import java.util.Properties
 import java.util.zip.ZipFile
+import javax.xml.parsers.DocumentBuilderFactory
 
 plugins {
     alias(libs.plugins.kotlin.multiplatform)
@@ -246,13 +247,22 @@ tasks.matching { it.name == "lintAnalyzeAndroidHostTest" || it.name == "generate
 
 val appVersion = providers.gradleProperty("appVersion").get()
 val innerTubeXVersion = providers.gradleProperty("innerTubeXVersion").get()
+val bundledLanguageParser =
+    DocumentBuilderFactory
+        .newInstance()
+        .apply { setFeature("http://apache.org/xml/features/disallow-doctype-decl", true) }
+        .newDocumentBuilder()
 val bundledLanguageTags =
     file("src/commonMain/composeResources")
         .listFiles()
         .orEmpty()
         .asSequence()
         .filter { it.isDirectory && it.name.startsWith("values-") && it.name != "values-xml" }
-        .map { directory ->
+        .filter { directory ->
+            val catalog = File(directory, "strings.xml").takeIf(File::isFile) ?: return@filter false
+            val root = bundledLanguageParser.parse(catalog).documentElement
+            root.getElementsByTagName("string").length > 0 || root.getElementsByTagName("plurals").length > 0
+        }.map { directory ->
             val qualifier = directory.name.removePrefix("values-")
             val languageTag =
                 if (qualifier.startsWith("b+")) {
@@ -538,9 +548,11 @@ val generateBuildConfig =
                 .orElse(providers.provider { "" })
                 .get()
                 .trim()
+        val isIzzyTask = gradle.startParameter.taskNames.any { it.contains("Izzy", ignoreCase = true) }
         val isReleaseTask =
             gradle.startParameter.taskNames.any { name ->
-                name.contains("Release", ignoreCase = true) ||
+                name.contains("Izzy", ignoreCase = true) ||
+                    name.contains("Release", ignoreCase = true) ||
                     name.contains("Benchmark", ignoreCase = true) ||
                     (name.contains("package", ignoreCase = true) && !name.contains("Debug", ignoreCase = true)) ||
                     name.contains("Distributable", ignoreCase = true)
@@ -595,8 +607,9 @@ val generateBuildConfig =
         }
         inputs.property("lastFmKey", lastFmKey)
         inputs.property("lastFmSecret", lastFmSecret)
-        inputs.property("lyprioBaseUrl", lyprioBaseUrl)
-        inputs.property("lyprioHmacKey", lyprioHmacKey)
+        // shortcut: BuildConfig is per invocation, so an Izzy build leaves Lyprio out of every APK it assembles; build Izzy alone.
+        inputs.property("lyprioBaseUrl", if (isIzzyTask) "" else lyprioBaseUrl)
+        inputs.property("lyprioHmacKey", if (isIzzyTask) "" else lyprioHmacKey)
         val sourceRevision =
             providers
                 .gradleProperty("metrolist.sourceRevision")

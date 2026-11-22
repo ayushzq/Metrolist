@@ -496,6 +496,9 @@
     <string name="auto_load_more">Add similar songs automatically</string>
     <!-- Translators: Supporting text beneath the auto load more option in the settings. -->
     <string name="auto_load_more_desc">Automatically add similar songs to radio and mix queues when they near the end</string>
+    <string name="classic_recommendations">Classic recommendations</string>
+    <string name="classic_recommendations_desc">Build Quick picks from your own listening history and play your personal YouTube up next in order, like Metrolist 13</string>
+    <string name="classic_recommendations_desc_desktop">Play your personal YouTube up next in order, like Metrolist 13</string>
     <!-- Translators: Imperative action label for skip silence in the settings. -->
     <string name="skip_silence">Skip silence</string>
     <!-- Translators: Option or section label for audio normalization in the settings. -->
@@ -651,6 +654,8 @@
     <string name="pause_search_history">Pause search history</string>
     <!-- Translators: Imperative action label for clear search history in the Home and browse screens and settings. -->
     <string name="clear_search_history">Clear search history</string>
+    <!-- Translators: Progress label shown while saved search queries are being cleared. -->
+    <string name="clearing_search_history">Clearing search history…</string>
     <!-- Translators: Supporting text beneath the clear search history option in the settings. -->
     <string name="settings_clear_search_history_description">Remove saved searches from this device and YouTube</string>
     <!-- Translators: Dialog or notice body text for clear search history confirm in the settings. -->
@@ -746,6 +751,9 @@
     <string name="open_github_profile">Open GitHub profile</string>
     <!-- Translators: Label for sponsor developer in the About screen. -->
     <string name="sponsor_developer">Sponsor developer</string>
+    <string name="support_prompt_title">Enjoying the app?</string>
+    <string name="support_prompt_message">Support Metrolist's development by supporting the developers behind it. Tap someone to open their support page.</string>
+    <string name="support_prompt_never_show">Never show this again</string>
     <!-- Translators: Label for credits collaborator; retained for translation compatibility but not currently referenced by app code. -->
     <!-- Translators: Label for discord in the multiple app screens. -->
     <string name="brand_discord" translatable="false">Discord</string>
@@ -934,21 +942,21 @@
     <string name="devtools_access_logged_in" translatable="false">Logged in</string>
     <!-- Translators: Label for client legend access in the playback developer tools. -->
     <string name="devtools_playback_client_legend_access" translatable="false">Account access</string>
-    <!-- Translators: Heading for log in the playback developer tools. -->
-    <string name="devtools_playback_log_title" translatable="false">Playback event log</string>
-    <!-- Translators: Supporting text beneath the log option in the playback developer tools. -->
-    <!-- Translators: Empty-state message for log empty in the playback developer tools. -->
-    <!-- Translators: Label for log count in the playback developer tools. %1$d is the captured event count. -->
-    <string name="devtools_playback_log_count" translatable="false">%1$d events captured</string>
+    <!-- Translators: Heading for the application failure log in the developer tools. -->
+    <string name="devtools_playback_log_title">Application event log</string>
+    <!-- Translators: Supporting text beneath the application failure log. -->
+    <!-- Translators: Empty-state message for the application failure log. -->
+    <!-- Translators: Label for the application failure log count. %1$d is the captured event count. -->
+    <string name="devtools_playback_log_count">%1$d events captured</string>
     <!-- Translators: Label for log filter all in the playback developer tools. -->
     <!-- Translators: Label for log filter warnings in the playback developer tools. -->
     <!-- Translators: Error message about log filter errors in the playback developer tools. -->
     <!-- Translators: Label for log cleared in the playback developer tools. -->
-    <string name="devtools_playback_log_cleared" translatable="false">Playback log cleared</string>
+    <string name="devtools_playback_log_cleared">Application log cleared</string>
     <!-- Translators: Error message about log export in the playback developer tools. -->
-    <string name="devtools_playback_log_export_failed" translatable="false">Could not export the playback log</string>
-    <!-- Translators: Heading for log share in the playback developer tools. -->
-    <string name="devtools_playback_log_share_title" translatable="false">Export playback log</string>
+    <string name="devtools_playback_log_export_failed">Could not export the application log</string>
+    <!-- Translators: Share-sheet title for the application failure log. -->
+    <string name="devtools_playback_log_share_title">Export application log</string>
     <!-- Translators: Input hint for search in the settings. -->
     <string name="settings_search_placeholder">Search settings</string>
     <!-- Translators: Imperative action label for results; retained for translation compatibility but not currently referenced by app code. -->
@@ -984,6 +992,10 @@
     <string name="song_artwork_colors">Colors from song artwork</string>
     <!-- Translators: Supporting text beneath the song artwork colors option in the settings. -->
     <string name="song_artwork_colors_description">Override app colors with the current song artwork when available</string>
+    <!-- Translators: Switch label in the desktop Appearance settings. Matugen is the name of a program and should not be translated. -->
+    <string name="matugen_colors">Matugen colors</string>
+    <!-- Translators: Supporting text beneath the Matugen colors switch. Keep the file path unchanged. -->
+    <string name="matugen_colors_description">Use the wallpaper palette Matugen writes to ~/.config/metrolist/matugen.properties</string>
     <!-- Translators: Option or section label for palette style in the Appearance settings. -->
     <string name="theme_palette_content">Content</string>
     <string name="theme_palette_style">Palette style</string>
@@ -1385,6 +1397,16 @@
     <string name="backup_restore_import_desc">Restore a Metrolist backup. The app will restart after a successful restore.</string>
     <!-- Translators: Progress or status message for restore busy in the Backup & Restore. -->
     <string name="backup_restore_busy">Working…</string>
+    <string name="automatic_backup">Automatic backup</string>
+    <string name="automatic_backup_description">Save a local backup automatically and keep the 10 most recent copies.</string>
+    <string name="automatic_backup_frequency">Backup frequency</string>
+    <string name="automatic_backup_daily">Daily</string>
+    <string name="automatic_backup_weekly">Weekly</string>
+    <string name="automatic_backup_monthly">Monthly</string>
+    <string name="automatic_backup_location">Backups stay on this device. Mobile operating systems may defer them. Desktop backups run while Metrolist is open.</string>
+    <string name="automatic_backup_restore">Restore an automatic backup</string>
+    <string name="automatic_backup_restore_empty">No automatic backups are available.</string>
+    <string name="automatic_backup_restore_desc">Choose a saved automatic backup to restore.</string>
     <!-- Translators: Title of the Backup & Restore option that imports a backup made by a different YouTube Music app. -->
     <string name="foreign_import_title">Import from another app</string>
     <!-- Translators: Supporting text beneath the import-from-another-app option in the Backup & Restore. App names are product names. -->
@@ -1395,6 +1417,8 @@
     <string name="foreign_import_unsupported">This file is not a backup from a supported music app</string>
     <!-- Translators: Error shown when importing another app's backup fails. %1$s is the technical error message. -->
     <string name="foreign_import_failed">Import failed: %1$s</string>
+    <!-- Translators: Generic error shown when importing another app's backup fails. -->
+    <string name="foreign_import_error_generic">The backup could not be imported</string>
     <!-- Translators: Heading for sensitive in the Backup & Restore. -->
     <string name="backup_sensitive_title">Sensitive backup</string>
     <!-- Translators: Dialog or notice body text for sensitive in the Backup & Restore. -->
@@ -1708,6 +1732,8 @@
     <string name="updates_install">Install</string>
     <!-- Translators: Imperative action label for retry in the update settings. -->
     <string name="updates_retry">Try again</string>
+    <!-- Translators: Button that installs a downloaded update without checking its checksum or signature first. -->
+    <string name="updates_force_install">Install anyway</string>
     <!-- Translators: Heading for available in the update settings. %1$s is the available app version. -->
     <string name="updates_available_title">Metrolist %1$s is available</string>
     <!-- Translators: Dialog or notice body text for available in the update settings. -->
@@ -1847,6 +1873,7 @@
     <string name="ai_prompt_line_count_description">Optional. Use {lineCount} to include the exact input line count in your prompt.</string>
     <!-- Translators: Option or section label for provider default in the AI lyrics translation settings. -->
     <string name="brand_opencode_zen" translatable="false">OpenCode Zen</string>
+    <string name="brand_kilo" translatable="false">Kilo</string>
     <string name="brand_opencode_go" translatable="false">OpenCode Go</string>
     <string name="brand_groq" translatable="false">Groq</string>
     <string name="brand_deepseek" translatable="false">DeepSeek</string>
@@ -1923,6 +1950,8 @@
     <!-- Translators: Option or section label for same provider default in the AI lyrics translation settings. -->
     <!-- Translators: Field or option label for API key in the AI lyrics translation settings. -->
     <string name="ai_api_key_label">API key</string>
+    <!-- Translators: Field description for an optional API key when free models work without one. -->
+    <string name="ai_api_key_optional">Optional, free models work without a key</string>
     <!-- Translators: Field or option label for system prompt in the AI lyrics translation settings. -->
     <string name="ai_system_prompt_label">System prompt</string>
     <!-- Translators: Imperative action label for translation enable in the AI lyrics translation settings. -->
@@ -2476,6 +2505,7 @@
     <string name="search_recognized_songs">Search songs</string>
     <!-- Translators: Imperative action label for songs in the search. -->
     <string name="search_songs">Search songs</string>
+    <string name="search_episodes">Search episodes</string>
     <!-- Translators: Imperative action label for songs artists podcasts in the search. -->
     <string name="search_songs_artists_podcasts">Search songs, artists, podcasts</string>
     <!-- Translators: Label for see all in the artist screen and Home screen. -->
@@ -2498,6 +2528,8 @@
     <string name="share_podcast">Share podcast</string>
     <!-- Translators: Imperative action label for share song in the multiple app screens. -->
     <string name="share_song">Share song</string>
+    <!-- Translators: Button label for sharing selected lyrics as a vertical story card. -->
+    <string name="share_song_to_story">Share to story</string>
     <!-- Translators: Imperative action label for shuffle artist in the search. -->
     <!-- Translators: Imperative action label for shuffle playlist in the search. -->
     <string name="shuffle_playlist">Shuffle playlist</string>
@@ -2726,6 +2758,15 @@
         <item quantity="one">%1$dm ago</item>
         <item quantity="other">%1$dm ago</item>
     </plurals>
+    <!-- Translators: Day count in the total duration of a playlist or album. %1$d is the day count. -->
+    <plurals name="days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <!-- Translators: Total duration of a playlist or album made of two units, e.g. "10 hours, 36 minutes". %1$s and %2$s are the localized units, largest first. -->
+    <string name="duration_two_units">%1$s, %2$s</string>
+    <!-- Translators: Total duration of a playlist or album made of three units, e.g. "1 day, 2 hours, 45 minutes". %1$s, %2$s and %3$s are the localized units, largest first. -->
+    <string name="duration_three_units">%1$s, %2$s, %3$s</string>
     <!-- Translators: Pluralized count or status for hours in the song details. %1$d is the hour count. -->
     <plurals name="hours">
         <item quantity="one">%1$d hour</item>
@@ -2750,11 +2791,6 @@
     <plurals name="minutes">
         <item quantity="one">%1$d minute</item>
         <item quantity="other">%1$d minutes</item>
-    </plurals>
-    <!-- Translators: Pluralized count or status for minutes short in the song details. %1$d is the minute count. -->
-    <plurals name="minutes_short">
-        <item quantity="one">%1$d min</item>
-        <item quantity="other">%1$d min</item>
     </plurals>
     <!-- Translators: Pluralized count or status for track in the Home screen. %1$d is the track count. -->
     <plurals name="n_track">
@@ -2785,11 +2821,6 @@
     <plurals name="removed_songs_from_playlist">
         <item quantity="one">Removed %1$d song from playlist</item>
         <item quantity="other">Removed %1$d songs from playlist</item>
-    </plurals>
-    <!-- Translators: Pluralized count or status for seconds short in the song details. %1$d is the second count. -->
-    <plurals name="seconds_short">
-        <item quantity="one">%1$d s</item>
-        <item quantity="other">%1$d s</item>
     </plurals>
     <!-- Translators: Pluralized count or status for song count in the Home and browse screens and player menu. %1$d is the song count. -->
     <plurals name="song_count">
@@ -2898,7 +2929,7 @@
     <!-- Translators: Player setting for the original Metrolist shuffle behavior. -->
     <string name="legacy_shuffle">Legacy shuffle</string>
     <!-- Translators: Turning this setting off selects the KMP shuffle behavior. -->
-    <string name="legacy_shuffle_desc">Shuffle all songs, including played songs, with the current song first. Turn off for KMP shuffle. KMP keeps played songs in place and shuffles upcoming songs.</string>
+    <string name="legacy_shuffle_desc">Legacy shuffle puts the current song first and also shuffles played songs. Turn it off to shuffle only upcoming songs. Entries marked as auto-mix or recommendations keep their order in both modes.</string>
     <!-- Translators: Heading for persistent shuffle in the settings. -->
     <string name="persistent_shuffle_title">Persistent shuffle</string>
     <!-- Translators: Supporting text beneath the persistent shuffle option in the settings. -->
@@ -3100,6 +3131,20 @@
     <string name="turntable_widget_description">Circular artwork widget with playback controls</string>
     <!-- Translators: Label for music player in the Android home-screen widget. -->
     <string name="widget_music_player">Music player</string>
+    <!-- Translators: Label for the expressive pill-and-controls widget in the Android home-screen widget picker. -->
+    <string name="widget_expressive_player">Expressive player</string>
+    <!-- Translators: Supporting text beneath the expressive pill-and-controls widget in the Android home-screen widget picker. -->
+    <string name="widget_expressive_description">Pill artwork with scalloped playback controls</string>
+    <!-- Translators: Track duration with hours in a home-screen widget. Arguments are hours, two-digit minutes, and two-digit seconds. -->
+    <string name="widget_duration_hours">%1$s:%2$s:%3$s</string>
+    <!-- Translators: Track duration without hours in a home-screen widget. Arguments are minutes and two-digit seconds. -->
+    <string name="widget_duration_minutes">%1$s:%2$s</string>
+    <!-- Translators: Elapsed time and total duration in a home-screen widget. Both arguments are formatted times. -->
+    <string name="widget_time_pair">%1$s / %2$s</string>
+    <!-- Translators: Song title and artist announced for widget artwork. -->
+    <string name="widget_track_description">%1$s, %2$s</string>
+    <!-- Translators: Accessibility label for a playlist widget's play button. -->
+    <string name="widget_play_item">Play %1$s</string>
     <!-- Translators: Label for turntable in the Android home-screen widget. -->
     <string name="widget_turntable">Turntable</string>
     <!-- Translators: Label for the music recognizer option in the Android home-screen widget picker. -->
@@ -3440,8 +3485,12 @@
     <string name="account_login_with_token_hint">Tap to view or edit tokens</string>
     <!-- Translators: Progress or status message for downloading update in the account menu. %1$s is the app version. -->
     <string name="account_downloading_update">Downloading v%1$s</string>
+    <!-- Translators: Progress message shown while downloading a nightly app update in the account menu. -->
+    <string name="account_downloading_nightly_update">Downloading nightly update</string>
     <!-- Translators: Label for update available in the account menu. %1$s is the available app version. -->
     <string name="account_update_available">v%1$s available</string>
+    <!-- Translators: Label shown when a nightly app update is available in the account menu. -->
+    <string name="account_nightly_update_available">New nightly available</string>
     <!-- Translators: Label for control playback position in the mini player and desktop player. -->
     <string name="cd_playback_position">Playback position</string>
     <!-- Translators: Label for control account menu in the desktop app. -->
@@ -4022,6 +4071,8 @@
     <!-- Translators: Imperative action label for close video fullscreen in the music video player. -->
     <string name="close_video_fullscreen">Close video fullscreen</string>
     <string name="switch_to_audio">Switch to audio</string>
+    <!-- Translators: Player menu action that plays the music video of the current song. -->
+    <string name="switch_to_video">Switch to video</string>
     <string name="prefer_word_synced_lyrics">Prefer word-synced lyrics</string>
     <string name="prefer_word_synced_lyrics_description">Search enabled sources for word timings before using line-synced or plain lyrics</string>
     <!-- Translators: Label for thumbnail in the music video player. -->
@@ -4272,6 +4323,12 @@
     <!-- Translators: Option or section label for changes save automatically; retained for translation compatibility but not currently referenced by app code. -->
     <!-- Translators: Option or section label for invalid credentials in the Last.fm settings. -->
     <string name="lastfm_invalid_credentials">Invalid username or password. Check your Last.fm credentials.</string>
+    <!-- Translators: Title of the dialog and notification shown when the saved Last.fm sign-in stopped working. -->
+    <string name="lastfm_session_expired_title">Last.fm sign-in expired</string>
+    <!-- Translators: Settings action shown when the saved Last.fm sign-in stopped working and the user must sign in again. -->
+    <string name="lastfm_session_expired">Sign in to Last.fm again</string>
+    <!-- Translators: Description beneath the Last.fm sign-in-again action. Plays are listens waiting to be scrobbled. -->
+    <string name="lastfm_session_expired_description">Your Last.fm sign-in is no longer valid. Plays are saved and sent after you sign in.</string>
     <!-- Translators: Option or section label for login session invalid in the Last.fm settings. -->
     <string name="lastfm_login_session_invalid">Invalid session response</string>
     <!-- Translators: Error message about login; retained for translation compatibility but not currently referenced by app code. -->
@@ -4468,6 +4525,8 @@
     <string name="desktop_tray_toggle_on_click_desc_mac">Right-clicking the tray icon will open or close the Metrolist window</string>
     <!-- Translators: Imperative action label for show miniplayer in the desktop system tray. -->
     <string name="tray_show_miniplayer">Show miniplayer</string>
+    <!-- Translators: Imperative action label for hide miniplayer in the desktop system tray. -->
+    <string name="tray_hide_miniplayer">Hide miniplayer</string>
     <!-- Translators: Label for tray settings in the desktop system tray. -->
     <string name="tray_settings">Settings</string>
     <!-- Translators: Label for quit metrolist in the desktop system tray. -->
@@ -4640,6 +4699,8 @@
     <string name="import_provider_file">File or text</string>
     <!-- Translators: Supporting text beneath the provider file option in the playlist import. -->
     <string name="import_provider_file_desc">Import playlist files (CSV, TSV, M3U, M3U8, JSON)</string>
+    <!-- Translators: Supporting text beneath a streaming provider option in the iOS playlist import. -->
+    <!-- Translators: Label for free text input in the playlist import page. -->
     <!-- Translators: Imperative action label for connect spotify account in the playlist import. -->
     <string name="import_connect_spotify_account">Sign in with Spotify account</string>
     <!-- Translators: Imperative action label for spotify account playlists in the playlist import. -->
@@ -4904,6 +4965,7 @@
     <string name="secondary_text_color">Secondary text color</string>
     <string name="lyrics_share_artwork_failed">Artwork could not be loaded. You can still share with a solid background.</string>
     <string name="lyrics_share_failed">Could not create or export the image. Try again.</string>
+    <string name="lyrics_share_story_style">Customize image</string>
     <string name="lyrics_share_color">%1$s: #%2$s</string>
     <string name="lyrics_share_save_image">Save PNG</string>
     <string name="lyrics_share_text">"%1$s"\n\n%2$s - %3$s\n%4$s</string>
@@ -5061,6 +5123,8 @@
     <string name="live">LIVE</string>
     <string name="playback_event_log_raw_description">Always-on playback diagnostics. Copy or export this raw log when playback breaks.</string>
     <string name="playback_event_log_raw_empty">No playback events recorded yet. Play a track to capture diagnostics.</string>
+    <string name="application_failure_log_raw_description">Playback events and application failures are recorded here. UI events are excluded.</string>
+    <string name="application_failure_log_raw_empty">No events recorded yet.</string>
     <string name="import_error_playlist_tracks_unavailable">Could not load the playlist's tracks from %1$s. Export the playlist and paste the track list.</string>
     <string name="import_error_album_tracks_unavailable">Could not load the album's tracks from %1$s. Export the album and paste the track list.</string>
 <string name="audio_boost">Preamp</string>
@@ -5363,6 +5427,7 @@
     <string name="crash_updates_pending_title" translatable="false">Pending update</string>
     <string name="crash_updates_release_unavailable" translatable="false">This release does not include a compatible APK.</string>
     <string name="crash_updates_retry" translatable="false">Try again</string>
+    <string name="crash_updates_force_install" translatable="false">Install anyway</string>
     <string name="crash_updates_size" translatable="false">Update size</string>
     <string name="crash_updates_version" translatable="false">Metrolist version</string>
     <string name="crash_upload" translatable="false">Upload</string>
@@ -5510,4 +5575,6 @@
     <string name="ai_setup_key_limits">Review key limits</string>
     <string name="ios_style">iOS style</string>
     <string name="ios_style_description">Apple Music inspired colours, rounder shapes and bold titles. Turn off for the standard look.</string>
+    <string name="lyrics_share_square_image">Square image</string>
+    <string name="lyrics_share_story_image">Story image</string>
 </resources>

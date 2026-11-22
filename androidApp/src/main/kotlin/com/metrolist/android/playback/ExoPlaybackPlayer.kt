@@ -206,15 +206,23 @@ internal fun shouldWrapToLastItem(
     playbackPositionMs: Long,
     currentQueueIndex: Int,
     lastQueueIndex: Int,
-): Boolean = repeatAll && currentQueueIndex == 0 && lastQueueIndex > 0 && playbackPositionMs < RESTART_CURRENT_ITEM_THRESHOLD_MS
+    isLive: Boolean = false,
+): Boolean =
+    repeatAll && currentQueueIndex == 0 && lastQueueIndex > 0 &&
+        (isLive || playbackPositionMs < RESTART_CURRENT_ITEM_THRESHOLD_MS)
 
 internal fun AndroidPlaybackPlayer.skipToPrevious(
     repeatAll: Boolean,
     resumePlayback: Boolean,
 ) {
     val lastIndex = songQueue.value.lastIndex
-    if (currentSong.value?.isLive != true &&
-        shouldWrapToLastItem(repeatAll, currentPosition.value, currentMediaItemIndex.value, lastIndex)
+    if (shouldWrapToLastItem(
+            repeatAll,
+            currentPosition.value,
+            currentMediaItemIndex.value,
+            lastIndex,
+            isLive = currentSong.value?.isLive == true,
+        )
     ) {
         skipToQueueItem(lastIndex, resumePlayback = resumePlayback)
     } else {
@@ -587,6 +595,14 @@ class ExoPlaybackPlayer(
     private var eofInstance = 0L
     private var lastEofInstance = 0L
     private var currentResource: PlaybackResource? = null
+
+    private data class PromotedQueueOccurrence(
+        val entryKey: Long,
+        val playbackInstance: Long,
+        val requestGeneration: Long,
+    )
+
+    private var preloadedQueueOccurrence: PromotedQueueOccurrence? = null
     private val playbackInstanceIdState = MutableStateFlow(0L)
     override val playbackInstanceId = playbackInstanceIdState.asStateFlow()
     private var currentInstance: Long
@@ -1364,9 +1380,26 @@ class ExoPlaybackPlayer(
     }
 
     override fun removeQueueItems(indices: Set<Int>): QueueRemoval? {
+        val occurrence = preloadedQueueOccurrence
+        val resource = currentResource
+        val playbackInstance = currentInstance
+        val queueEntry = currentQueueEntryKey()
+        val wasTransitioningToNext = nextStarted
         val removal = queue.removeAt(indices) ?: return null
         cancelNextIfQueueTargetChanged()
-        syncCurrentSong(removal.items.any { it.index == removal.previousCurrentIndex })
+        val removedCurrent = removal.items.any { it.index == removal.previousCurrentIndex }
+        // Preload promotion can normalize the loaded metadata without replacing the queue entry.
+        val keptPlayingOccurrence =
+            !removedCurrent && occurrence != null && occurrence.playbackInstance == playbackInstance &&
+                occurrence.requestGeneration == requestCounter &&
+                occurrence.entryKey == queueEntry && occurrence.entryKey == currentQueueEntryKey() &&
+                currentInstance == playbackInstance && resource != null && currentResource === resource &&
+                currentSongValue?.id == resource.videoId && queue.currentSong()?.id == resource.videoId &&
+                controllerClock == null && !queueTrackChangePending && !playbackTransitions.pending.value &&
+                !speculativeQueueReplacementPreparation && !wasTransitioningToNext && !nextStarted &&
+                (nextPlaylistIndex == C.INDEX_UNSET || exo.currentMediaItemIndex != nextPlaylistIndex) &&
+                exo.playbackState == Player.STATE_READY && exo.playerError == null
+        if (!keptPlayingOccurrence) syncCurrentSong(removedCurrent)
         return removal
     }
 
@@ -1375,6 +1408,8 @@ class ExoPlaybackPlayer(
         cancelNextIfQueueTargetChanged()
         syncCurrentSong()
     }
+
+    private fun currentQueueEntryKey(): Long? = queue.state.value.let { it.entries.getOrNull(it.currentIndex)?.key }
 
     private fun syncCurrentSong(
         stopIfEmpty: Boolean = false,
@@ -1797,6 +1832,8 @@ class ExoPlaybackPlayer(
                 createPlayer(
                     bufferForPlaybackMs = SWITCH_READY_BUFFER_MS.toInt(),
                     role = AndroidPlaybackPlayerRole.SECONDARY,
+                    // Some ROMs (HyperOS) stall a whole session after a muted track idles on it for 60s in the background.
+                    audioSessionId = Util.generateAudioSessionIdV21(context),
                 )
             normalizationProcessors[candidate]?.resource = resource
             var candidateAudioSource: SeekableMediaSource? = null
@@ -2346,6 +2383,8 @@ class ExoPlaybackPlayer(
             return false
         }
         val queueSong = queue.peekNext()?.takeIf { it.id == token.queueSongId } ?: return false
+        val nextEntryKey = queue.state.value.let { it.entries.getOrNull(it.currentIndex + 1)?.key }
+        val promotionGeneration = requestCounter
         val song = playbackSong ?: queueSong
         if (song.id != resource.videoId) return false
         val incomingReporter = nextPlaybackReporter ?: return false
@@ -2365,6 +2404,7 @@ class ExoPlaybackPlayer(
         nextPlayerListener?.let(candidate::removeListener)
         nextPlayerListener = null
         exo = candidate
+        sharedAudioSessionId = candidate.audioSessionId
         if (!usesPlaylist) offloadSleepStallTracker.reset()
         sabrPlaybackCache.release(activeAudioSource)
         activeAudioSource?.closePlaybackSource()
@@ -2429,7 +2469,16 @@ class ExoPlaybackPlayer(
         }
         _isPlaying.value = candidate.isPlaying
         queue.next()
-        if (effectiveSong.id != queueSong.id || effectiveSong.isLive != queueSong.isLive) queue.replaceCurrent(effectiveSong)
+        preloadedQueueOccurrence =
+            if (effectiveSong.id != queueSong.id || effectiveSong.isLive != queueSong.isLive) {
+                queue.replaceCurrent(effectiveSong)
+                null
+            } else {
+                nextEntryKey
+                    ?.takeIf {
+                        effectiveSong !== queueSong && it == currentQueueEntryKey() && requestCounter == promotionGeneration
+                    }?.let { PromotedQueueOccurrence(it, currentInstance, promotionGeneration) }
+            }
         sabrPlaybackCache.start(effectiveSong.id, resource, activeAudioSource, candidate.isPlaying, newPlayback = true)
         onPreloadedPlaybackCommitted?.invoke(effectiveSong, resource)
         currentSongValue = effectiveSong

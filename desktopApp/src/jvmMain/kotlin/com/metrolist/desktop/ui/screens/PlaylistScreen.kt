@@ -100,6 +100,7 @@ import com.metrolist.shared.model.SongItem
 import com.metrolist.shared.model.canEdit
 import com.metrolist.shared.model.filterForPlaylistSearch
 import com.metrolist.shared.model.isReordering
+import com.metrolist.shared.model.playlistOccurrenceIdentity
 import com.metrolist.shared.model.playlistOccurrenceKey
 import com.metrolist.shared.model.sortedForPlaylist
 import com.metrolist.shared.playlist.PlaylistPartiallyUpdatedException
@@ -121,6 +122,7 @@ import com.metrolist.shared.ui.menu.contextMenuAnchor
 import com.metrolist.shared.ui.menu.cursorContextMenu
 import com.metrolist.shared.ui.menu.rememberCursorContextMenuState
 import com.metrolist.shared.ui.navigation.LocalNavigator
+import com.metrolist.shared.ui.navigation.Screen
 import com.metrolist.shared.ui.navigation.navigationPopupSource
 import com.metrolist.shared.ui.screens.PlaylistContent
 import com.metrolist.shared.ui.screens.playlistContentText
@@ -129,6 +131,7 @@ import com.metrolist.shared.ui.selection.rememberSelectionState
 import com.metrolist.shared.utils.XdgUtils
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.getString
@@ -140,7 +143,10 @@ import java.io.File
 import java.util.IdentityHashMap
 
 @Composable
-fun PlaylistScreen(colorScheme: ColorScheme) {
+fun PlaylistScreen(
+    colorScheme: ColorScheme,
+    route: Screen.Playlist,
+) {
     if (PlaylistAlbumState.isPlaylistLoading && PlaylistAlbumState.playlistData.isEmpty()) {
         val loadingNavigator = LocalNavigator.current
         CollectionHeaderNavigation({ loadingNavigator.goBack() }) { LoadingScreen() }
@@ -380,6 +386,27 @@ fun PlaylistScreen(colorScheme: ColorScheme) {
             }
     }
     val navigator = LocalNavigator.current
+    val playbackScope = rememberCoroutineScope()
+    val latestPlaylistPlayback = remember(route) { mutableStateOf<Any?>(null) }
+
+    fun withCompletePlaylistPlayback(action: (List<SongItem>) -> Unit) {
+        if (!playbackScope.isActive || navigator.state.currentRoute != route) return
+        val request = Any()
+        latestPlaylistPlayback.value = request
+        val generation = PlayerState.explicitPlaybackGeneration
+        val navigationChange = navigator.state.containers.change
+        PlaylistAlbumState.withCompletePlaylist { all ->
+            if (
+                playbackScope.isActive &&
+                navigator.state.currentRoute == route &&
+                navigator.state.containers.change === navigationChange &&
+                latestPlaylistPlayback.value === request &&
+                PlayerState.explicitPlaybackGeneration == generation
+            ) {
+                action(all)
+            }
+        }
+    }
 
     Box(
         Modifier
@@ -438,7 +465,7 @@ fun PlaylistScreen(colorScheme: ColorScheme) {
             onEdit = null,
             text = playlistContentText(),
             onPlayAll = {
-                PlaylistAlbumState.withCompletePlaylist { all ->
+                withCompletePlaylistPlayback { all ->
                     val queue =
                         all
                             .sortedForPlaylist(
@@ -450,7 +477,7 @@ fun PlaylistScreen(colorScheme: ColorScheme) {
                 }
             },
             onShuffle = {
-                PlaylistAlbumState.withCompletePlaylist { all ->
+                withCompletePlaylistPlayback { all ->
                     PlayerState.shuffleQueue(
                         all
                             .sortedForPlaylist(
@@ -473,7 +500,7 @@ fun PlaylistScreen(colorScheme: ColorScheme) {
                 } else if (selection.active) {
                     selection.toggle(occurrenceKey(song))
                 } else {
-                    PlaylistAlbumState.withCompletePlaylist { all ->
+                    withCompletePlaylistPlayback { all ->
                         PlayerState.playTrack(
                             song,
                             if (reorderMode) all else all.sortedForPlaylist(sortMode, sortDirection, listeningTimes = listeningTimes),
@@ -510,6 +537,8 @@ fun PlaylistScreen(colorScheme: ColorScheme) {
             listState = listState,
             contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
             currentSongId = PlayerState.currentTrack?.id,
+            currentQueueItemId = PlayerState.currentTrack?.originalQueueItemId,
+            currentSongOccurrenceKey = PlayerState.currentTrack?.playlistOccurrenceIdentity(),
             isPlaying = PlayerState.isPlaying,
             suggestions = suggestions.takeIf { searchQuery.isBlank() && !(songs.isEmpty() && isEditable) }.orEmpty(),
             onArtistClick = ArtistState::fetchArtistData,
@@ -769,7 +798,9 @@ fun PlaylistScreen(colorScheme: ColorScheme) {
             confirmButton = {
                 Button(
                     onClick = {
-                        PlaylistAlbumState.deleteSelectedPlaylist { result ->
+                        if (navigator.state.currentRoute != route) return@Button
+                        PlaylistAlbumState.deleteSelectedPlaylist(route.id) { result ->
+                            if (navigator.state.currentRoute != route) return@deleteSelectedPlaylist
                             result.onSuccess {
                                 showDeleteDialog = false
                                 deleteFailed = false

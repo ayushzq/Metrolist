@@ -73,6 +73,7 @@ import com.metrolist.shared.model.canSwitchToMusicVideo
 import com.metrolist.shared.model.isPodcast
 import com.metrolist.shared.model.isVideoSong
 import com.metrolist.shared.model.previewThumbnailUrl
+import com.metrolist.shared.model.withDownloadsPlayable
 import com.metrolist.shared.playback.MusicQueue
 import com.metrolist.shared.playback.MusicQueueSnapshot
 import com.metrolist.shared.playback.PlaybackCrossfadeState
@@ -85,6 +86,7 @@ import com.metrolist.shared.playback.PlaybackRecoveryPolicy
 import com.metrolist.shared.playback.QueuePlaybackRequest
 import com.metrolist.shared.playback.SleepTimerController
 import com.metrolist.shared.playback.findPlaybackHttpStatusCode
+import com.metrolist.shared.playback.isAutoMixQueueSource
 import com.metrolist.shared.playback.isRecommendationGeneratedQueueSource
 import com.metrolist.shared.playback.isRecommendedQueueSource
 import com.metrolist.shared.scrobble.ScrobbleManager
@@ -500,6 +502,7 @@ private fun MediaItem.automotivePlaybackRequestGeneration(): Long? =
 internal data class AutomotiveSongResolution(
     val songs: List<SongItem>,
     val startIndex: Int,
+    val retainsRequestedStartPosition: Boolean = true,
 )
 
 internal fun resolveAutomotiveSongRequest(
@@ -775,4 +778,15 @@ internal fun automotivePlayerCommands(): Player.Commands =
 internal fun generatedQueueIndicesToRemoveForRepeat(
     queue: List<SongItem>,
     currentIndex: Int,
-): List<Int> = queue.indices.filter { it != currentIndex && queue[it].queueSourceTitle.isRecommendationGeneratedQueueSource() }
+    preserveAutoMix: Boolean = false,
+): List<Int> =
+    queue.indices.filter {
+        it != currentIndex && queue[it].queueSourceTitle.isRecommendationGeneratedQueueSource() &&
+            !(preserveAutoMix && queue[it].queueSourceTitle.isAutoMixQueueSource())
+    }
+
+internal fun downloadedAlbumQueueSongs(
+    songs: List<SongItem>,
+    downloadedSongIds: Set<String>,
+    remotePlayback: Boolean,
+): List<SongItem> = if (remotePlayback) songs else songs.withDownloadsPlayable(downloadedSongIds)

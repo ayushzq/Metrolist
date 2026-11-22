@@ -299,6 +299,7 @@ class PlayerConnection(
 
     private val _currentPlaybackResource = MutableStateFlow<PlaybackResource?>(null)
     override val currentPlaybackResource: StateFlow<PlaybackResource?> = _currentPlaybackResource.asStateFlow()
+    override val videoPlaybackResource: StateFlow<PlaybackResource?> = currentPlaybackResource
 
     private val _loadError = MutableStateFlow<String?>(null)
     val loadError: StateFlow<String?> = _loadError.asStateFlow()
@@ -1224,7 +1225,7 @@ class PlayerConnection(
             listenTogetherPlaybackRequestsState.tryEmit(ListenTogetherPlaybackRequest(song = song))
             return
         }
-        musicService?.playMix(song)
+        musicService?.playMix(song, startPlaying = localSongChangeStartsPlayback())
     }
 
     override fun selectQueueChip(chipId: String) {
@@ -1271,6 +1272,18 @@ class PlayerConnection(
         song: SongItem,
         playNext: Boolean,
     ) = addToQueue(listOf(song), playNext)
+
+    fun addDownloadedAlbumToQueue(
+        songs: List<SongItem>,
+        downloadedSongIds: Set<String>,
+        playNext: Boolean = false,
+    ) {
+        if (deferUntilConnected { addDownloadedAlbumToQueue(songs, downloadedSongIds, playNext) }) return
+        val remotePlayback =
+            _castState.value.isConnected || AndroidListenTogetherManager.currentManager?.hasActiveOrPendingRoom == true ||
+                AndroidDeviceConnect.manager.remote.willStartRemotePlayback
+        addToQueue(downloadedAlbumQueueSongs(songs, downloadedSongIds, remotePlayback), playNext)
+    }
 
     fun addToQueue(
         songs: List<SongItem>,

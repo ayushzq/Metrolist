@@ -75,7 +75,6 @@ Desktop song details use the shared draggable scrollbar when the content exceeds
 
 ## Verification
 
-`MediaMenuPlaybackActionsTest` covers ordered album/playlist playback, artist shuffle, shuffled duplicate occurrences, queue insertion, empty loads, failures and cancellation without a UI harness.
 
 Run affected [platform checks](checks.md#platform-checks). Compile and exercise iOS on macOS. Check each changed host with available and unavailable items, guests, local audio and duplicate queue entries. Compare song, album, artist, playlist, queue and player menus with and without a playing track, including missing album/artist IDs, like/dislike, download progress, alternate sharing and playlist picker dismissal. Test touch, mouse, TV focus, keyboard and screen-reader actions, dismissal, failed loading and native callbacks on the target platform.
 
@@ -84,3 +83,7 @@ Explicit-song headers must keep the badge visible after short, long and missing 
 For desktop placement, check right-click and button menus after scrolling, with the sidebar visible, at different display scales and near window edges. Right-click menus start at the cursor and stay inside the window; button menus leave the trigger visible. Check motion, scrolling, outside-click and Escape dismissal, keyboard activation, RTL and reduced motion.
 
 For collection headers and selection, check Liked Music, an empty playlist, a remote playlist, an editable playlist, an album, Downloads, Cache, History and Queue at phone, medium and two-pane widths, with long translations, large fonts, RTL and animations disabled.
+
+Android and iOS share selected lyrics as a 9:16 PNG story card with artwork and track metadata. The image footer includes a YouTube Music link only for remote tracks. Local tracks omit the link. Desktop keeps its square exporter. Verify both mobile share sheets, local songs and five selected lines.
+
+Mobile lyric sharing offers both a story image and the square exporter. The square format retains its background and color controls.

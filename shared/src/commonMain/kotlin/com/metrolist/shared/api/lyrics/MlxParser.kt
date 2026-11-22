@@ -60,7 +60,14 @@ object MlxParser {
         return hasMlxHeader && parse(text).lines.any { it.text.isNotBlank() }
     }
 
-    fun parse(text: String): MlxDocument {
+    fun parse(text: String): MlxDocument = parse(text, applyLrcOffset = true)
+
+    internal fun parseWithoutLrcOffset(text: String): MlxDocument = parse(text, applyLrcOffset = false)
+
+    private fun parse(
+        text: String,
+        applyLrcOffset: Boolean,
+    ): MlxDocument {
         if (text.length > MAX_DOCUMENT_CHARS) return emptyDocument()
         if (text.trimStart().startsWith('{')) {
             return MlxJsonParser.parse(text)?.withValidatedRomanization() ?: emptyDocument()
@@ -189,7 +196,9 @@ object MlxParser {
             lines = finalLines,
             songParts = resolvedSongParts,
             colors = parseColors(sections["colors"] ?: emptyList()),
-        ).withLrcOffset(lrcOffsetMs(text)).withValidatedRomanization()
+        ).let { document ->
+            if (applyLrcOffset) document.withLrcOffset(lrcOffsetMs(text)) else document
+        }.withValidatedRomanization()
     }
 
     private fun MlxDocument.withValidatedRomanization(): MlxDocument {
@@ -460,11 +469,12 @@ object MlxParser {
             val bgContent = bgMatch?.groupValues?.get(1)
             val nextStart = lineStarts.getOrNull(lineStarts.binarySearch(startMs).let { if (it >= 0) it + 1 else -it - 1 })
             val wordEnd = endMs ?: nextStart
-            val (mainText, mainWords) = parseContent(mainContent, startMs, wordEnd)
+            val explicitStart = startMs.takeIf { headerMatch != null }
+            val (mainText, mainWords) = parseContent(mainContent, explicitStart, wordEnd)
 
             val bgWords: List<WordTimestamp>? =
                 if (!bgContent.isNullOrBlank()) {
-                    val (_, parsed) = parseContent(bgContent, startMs, wordEnd)
+                    val (_, parsed) = parseContent(bgContent, explicitStart, wordEnd)
                     parsed?.map { it.copy(isBackground = true) }
                 } else {
                     null
@@ -486,11 +496,11 @@ object MlxParser {
                             header?.groupValues?.get(1)?.let(::tsToMs)
                                 ?: mainWords?.firstOrNull()?.startTime?.let { (it * 1000).toLong() } ?: startMs,
                         text = mainText,
-                        words = if (isBackground) allWords?.map { it.copy(isBackground = true) } else allWords,
+                        words = allWords,
                         agent = agentId,
                         endTime = endMs,
                         isBackground = isBackground,
-                        backgroundText = bgContent?.let { parseContent(it, startMs, endMs).first },
+                        backgroundText = bgContent?.let { parseContent(it, explicitStart, endMs).first },
                         songPart = currentSongPart,
                     ),
                 )
@@ -539,7 +549,7 @@ object MlxParser {
     /** Preserves syllable spacing; only trailing spaces move into WordTimestamp.hasTrailingSpace. */
     private fun parseContent(
         content: String,
-        lineStartMs: Long,
+        lineStartMs: Long?,
         lineEndMs: Long?,
     ): Pair<String, List<WordTimestamp>?> {
         val markers = WORD_TS.findAll(content).toList()
@@ -551,8 +561,9 @@ object MlxParser {
         val words = mutableListOf<WordTimestamp>()
         val textBuf = StringBuilder()
 
-        var pendingText: String? = null
+        var pendingText: String? = content.substring(0, markers.first().range.first).takeIf(String::isNotBlank)
         var pendingStartMs = 0L
+        pendingText?.let(textBuf::append)
 
         fun flushPending(endMs: Long) {
             val raw = pendingText ?: return
@@ -573,6 +584,10 @@ object MlxParser {
         for (i in markers.indices) {
             val marker = markers[i]
             val markerMs = groupsToMs(marker.groupValues[1], marker.groupValues[2], marker.groupValues[3])
+            if (i == 0) {
+                // The line tag can also start the first word in enhanced LRC.
+                pendingStartMs = lineStartMs?.coerceAtMost(markerMs) ?: markerMs
+            }
 
             val segStart = marker.range.last + 1
             val segEnd = if (i + 1 < markers.size) markers[i + 1].range.first else content.length

@@ -6,15 +6,22 @@
 package com.metrolist.android
 
 import android.app.Application
+import android.app.UiModeManager
+import android.app.WallpaperManager
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.SystemClock
 import android.service.quicksettings.TileService
+import android.util.Log
 import android.webkit.WebView
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.core.app.NotificationChannelCompat
 import androidx.core.app.NotificationManagerCompat
@@ -35,6 +42,7 @@ import com.metrolist.android.playback.SongDownloadManager
 import com.metrolist.android.playlistimport.AndroidPlaylistImportNotifier
 import com.metrolist.android.quicksettings.MusicRecognizerTileService
 import com.metrolist.android.recognition.MusicRecognitionService
+import com.metrolist.android.scrobble.LastFmSessionNotification
 import com.metrolist.android.ui.GlobalPlaybackNetworkMonitor
 import com.metrolist.android.update.AppUpdateManager
 import com.metrolist.android.utils.CrashHandler
@@ -42,11 +50,14 @@ import com.metrolist.android.utils.IconUtils
 import com.metrolist.android.utils.SentryManager
 import com.metrolist.android.utils.createAppImageLoader
 import com.metrolist.android.utils.isAndroidTv
+import com.metrolist.android.widget.ExpressiveWidgetReceiver
+import com.metrolist.android.widget.MetrolistWidgetManager
 import com.metrolist.android.widget.MusicWidgetReceiver
 import com.metrolist.android.widget.PlaylistWidgetReceiver
 import com.metrolist.android.widget.RecognizerWidgetReceiver
 import com.metrolist.android.widget.RecognizerWidgets
 import com.metrolist.android.widget.TurntableWidgetReceiver
+import com.metrolist.android.widget.WidgetThemeConfig
 import com.metrolist.shared.api.lastfm.LastFM
 import com.metrolist.shared.api.lastfm.LastFmGalleryBrowser
 import com.metrolist.shared.auth.AuthManager
@@ -66,7 +77,10 @@ import com.metrolist.shared.state.coreModule
 import com.metrolist.shared.utils.isCrashReportingAvailable
 import com.metrolist.shared.youtube.di.sharedModule
 import com.metrolist.shared.youtube.playback.AndroidContextProvider
+import com.metrolist.shared.youtube.playback.PlaybackEventLevel
+import com.metrolist.shared.youtube.playback.PlaybackEventLog
 import com.metrolist.shared.youtube.playback.PlaybackNetworkStateStore
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -84,6 +98,8 @@ import org.koin.android.ext.koin.androidContext
 import org.koin.core.context.startKoin
 import timber.log.Timber
 import java.io.File
+import java.io.PrintWriter
+import java.io.StringWriter
 import com.metrolist.shared.BuildConfig as SharedBuildConfig
 
 class App :
@@ -149,6 +165,7 @@ class App :
     @OptIn(ExperimentalResourceApi::class)
     override fun onCreate() {
         super.onCreate()
+        Timber.plant(AppFailureTree())
         instance = this
         AndroidContextProvider.applicationContext = applicationContext
         val processName = currentProcessName()
@@ -198,10 +215,14 @@ class App :
         }
     }
 
+    private var wallpaperColorsListener: WallpaperManager.OnColorsChangedListener? = null
+    private var widgetThemeObservationStarted = false
+
     private fun refreshWidgetsAfterRestore() {
         val manager = AppWidgetManager.getInstance(this)
         listOf(
             MusicWidgetReceiver::class.java,
+            ExpressiveWidgetReceiver::class.java,
             PlaylistWidgetReceiver::class.java,
             TurntableWidgetReceiver::class.java,
             RecognizerWidgetReceiver::class.java,
@@ -216,6 +237,52 @@ class App :
                 )
             }
         }
+    }
+
+    private fun observeWidgetThemeChanges() {
+        if (widgetThemeObservationStarted) return
+        widgetThemeObservationStarted = true
+        get<CoroutineScope>().launch {
+            snapshotFlow { WidgetThemeConfig.fromSettings() }
+                .distinctUntilChanged()
+                .collectLatest {
+                    refreshInstalledWidgetsTheme()
+                }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            getSystemService(UiModeManager::class.java)?.addContrastChangeListener(mainExecutor) {
+                get<CoroutineScope>().launch { refreshInstalledWidgetsTheme() }
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1 && wallpaperColorsListener == null) {
+            runCatching {
+                val listener =
+                    WallpaperManager.OnColorsChangedListener { _, _ ->
+                        if (Settings.shared.materialYouEnabled) {
+                            get<CoroutineScope>().launch { refreshInstalledWidgetsTheme() }
+                        }
+                    }
+                WallpaperManager.getInstance(this).addOnColorsChangedListener(listener, Handler(Looper.getMainLooper()))
+                wallpaperColorsListener = listener
+            }.onFailure { error ->
+                Timber.tag(TAG).w(error, "Could not observe wallpaper color changes for widgets")
+            }
+        }
+    }
+
+    private suspend fun refreshInstalledWidgetsTheme() {
+        runCatching {
+            get<MetrolistWidgetManager>().refreshWidgetsTheme()
+        }.onFailure { error ->
+            if (error is CancellationException) throw error
+            Timber.tag(TAG).w(error, "Failed to refresh widgets after theme change")
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        if (!infrastructureReady) return
+        get<CoroutineScope>().launch { refreshInstalledWidgetsTheme() }
     }
 
     private fun initializeApp(appStart: Long) {
@@ -284,6 +351,7 @@ class App :
                 .build(),
         )
         AndroidPlaylistImportNotifier.ensureChannel(this)
+        LastFmSessionNotification.register(this)
 
         Timber.tag(TAG).d("App onCreate complete elapsed=%dms", SystemClock.elapsedRealtime() - appStart)
     }
@@ -361,6 +429,7 @@ class App :
         get<CoroutineScope>().launch(Dispatchers.IO) {
             SongLikeState.recoverDatabaseLikes(get<MusicDatabase>())
         }
+        get<CoroutineScope>().launch(Dispatchers.IO) { SentryManager.reportPlaybackClientStats() }
         get<CoroutineScope>().launch {
             MusicRecognitionService.status.collect {
                 try {
@@ -375,6 +444,7 @@ class App :
                 RecognizerWidgets.update(this@App)
             }
         }
+        observeWidgetThemeChanges()
         SongMetadataState.bind(get<MusicDatabase>(), get<CoroutineScope>())
         get<SongDownloadManager>().observeTrackedPlaylists(get<CoroutineScope>())
         get<CoroutineScope>().launch {
@@ -422,6 +492,38 @@ class App :
     }
 
     override fun newImageLoader(context: Context): ImageLoader = createAppImageLoader(context)
+}
+
+private class AppFailureTree : Timber.Tree() {
+    override fun isLoggable(
+        tag: String?,
+        priority: Int,
+    ): Boolean = priority == Log.WARN || priority == Log.ERROR
+
+    override fun log(
+        priority: Int,
+        tag: String?,
+        message: String,
+        t: Throwable?,
+    ) {
+        val level =
+            when (priority) {
+                Log.ERROR -> PlaybackEventLevel.ERROR
+                Log.WARN -> PlaybackEventLevel.WARN
+                else -> return
+            }
+        if (message.startsWith("[YtLogger] ")) return
+        val messageWithoutThrowable =
+            t?.let { throwable ->
+                val stackTrace =
+                    StringWriter(256)
+                        .also { writer ->
+                            throwable.printStackTrace(PrintWriter(writer, false))
+                        }.toString()
+                message.removeSuffix("\n$stackTrace").removeSuffix(stackTrace).removeSuffix("\n")
+            } ?: message
+        PlaybackEventLog.captureApplicationFailure(level, tag ?: "Android", messageWithoutThrowable, t)
+    }
 }
 
 private fun currentProcessName(): String =

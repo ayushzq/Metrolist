@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FilledTonalIconButton
@@ -68,6 +69,7 @@ fun MusicVideoSurface(
     modifier: Modifier = Modifier,
     cornerRadius: Dp = 12.dp,
     fillContainer: Boolean = false,
+    cropVideoToFill: Boolean = fillContainer,
     useSurfaceView: Boolean = false,
     showControls: Boolean = true,
     isPip: Boolean = false,
@@ -92,7 +94,7 @@ fun MusicVideoSurface(
             if (useSurfaceView) null else RoundedCornerOutlineProvider(with(density) { cornerRadius.toPx() })
         }
     val targetResizeMode =
-        if (fillContainer) {
+        if (cropVideoToFill) {
             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
         } else {
             AspectRatioFrameLayout.RESIZE_MODE_FIT
@@ -228,8 +230,8 @@ fun MusicVideoSurface(
         modifier =
             modifier
                 .then(
-                    if (!fillContainer && !useSurfaceView) {
-                        Modifier.aspectRatio(musicVideoContainerAspectRatio(videoAspectRatio))
+                    if (!cropVideoToFill && !useSurfaceView) {
+                        Modifier.wrapContentSize().aspectRatio(musicVideoContainerAspectRatio(videoAspectRatio))
                     } else {
                         Modifier
                     },

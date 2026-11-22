@@ -58,13 +58,16 @@ import androidx.compose.ui.unit.dp
 import com.metrolist.desktop.state.app.AppState
 import com.metrolist.desktop.state.content.ArtistState
 import com.metrolist.desktop.state.content.HomeState
+import com.metrolist.desktop.state.content.LibraryState
 import com.metrolist.desktop.state.content.PlaylistAlbumState
 import com.metrolist.desktop.state.playback.PlayerState
 import com.metrolist.desktop.storage.DownloadManager
+import com.metrolist.desktop.storage.DownloadState
 import com.metrolist.desktop.ui.components.AlbumContextMenu
 import com.metrolist.desktop.ui.components.RetryableError
 import com.metrolist.desktop.ui.components.SongContextMenu
 import com.metrolist.desktop.ui.components.SongSwipeActions
+import com.metrolist.desktop.utils.AppLogger
 import com.metrolist.shared.generated.resources.Res
 import com.metrolist.shared.generated.resources.error_occurred
 import com.metrolist.shared.generated.resources.more_options
@@ -75,7 +78,12 @@ import com.metrolist.shared.model.AlbumItem
 import com.metrolist.shared.model.AlbumPage
 import com.metrolist.shared.model.SongItem
 import com.metrolist.shared.model.filterForPlaylistSearch
+import com.metrolist.shared.model.withDownloadsPlayable
+import com.metrolist.shared.settings.BlockedContent
+import com.metrolist.shared.settings.Settings
 import com.metrolist.shared.state.AlbumLikeState
+import com.metrolist.shared.state.AlbumLikeToggleAlreadyInProgressException
+import com.metrolist.shared.state.GlobalYouTubeRepository
 import com.metrolist.shared.ui.components.CollectionHeaderNavigation
 import com.metrolist.shared.ui.components.CollectionPreviews
 import com.metrolist.shared.ui.components.CollectionSongsLoadingPlaceholder
@@ -91,6 +99,8 @@ import com.metrolist.shared.ui.navigation.navigationPopupSource
 import com.metrolist.shared.ui.screens.AlbumContent
 import com.metrolist.shared.ui.screens.albumContentText
 import com.metrolist.shared.ui.selection.rememberSelectionState
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
@@ -134,19 +144,46 @@ fun AlbumScreen(
     }
 
     val album = page.album
-    val songs = page.songs
+    val downloadedSongIds = LibraryState.downloadStates.filterValues { it == DownloadState.DOWNLOADED }.keys
+    val songs = remember(page.songs, downloadedSongIds) { page.songs.withDownloadsPlayable(downloadedSongIds) }
     val listState = if (loaded != null) HomeState.rememberListState("album_$albumId") else rememberLazyListState()
     val albumMenu = rememberCursorContextMenuState()
     val songMenu = rememberCursorContextMenuState()
     var menuSong by remember { mutableStateOf<SongItem?>(null) }
     var searchQuery by remember(album.id) { mutableStateOf("") }
     val selection = rememberSelectionState(album.id)
+    val inFlightAlbumIds by AlbumLikeState.inFlightAlbumIds.collectAsState()
+    val isTogglingFavorite = album.id in inFlightAlbumIds
     val onFavorite: () -> Unit = {
-        AlbumLikeState.toggleAlbumLike(album, songs) { result ->
-            if (result.isFailure) {
-                AppState.scope.launch {
-                    AppState.snackbarHostState.showSnackbar(getString(Res.string.error_occurred))
-                }
+        if (!isTogglingFavorite) {
+            AlbumLikeState.toggleAlbumLike(album, songs) { result ->
+                result
+                    .onSuccess { liked ->
+                        if (liked && Settings.shared.autoDownloadSavedCollections) {
+                            AppState.scope.launch(Dispatchers.IO) {
+                                try {
+                                    val cursor = page.playlistPage
+                                    val allSongs =
+                                        if (cursor?.hasMore == true) {
+                                            GlobalYouTubeRepository.instance.completePlaylistPage(cursor, applyContentFilters = false).songs
+                                        } else {
+                                            songs
+                                        }
+                                    DownloadManager.downloadAll(BlockedContent.filterSongs(allSongs))
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    AppLogger.warning("AlbumAutoDownload", "Unable to load album for automatic download", e)
+                                }
+                            }
+                        }
+                    }.onFailure {
+                        if (it !is AlbumLikeToggleAlreadyInProgressException) {
+                            AppState.scope.launch {
+                                AppState.snackbarHostState.showSnackbar(getString(Res.string.error_occurred))
+                            }
+                        }
+                    }
             }
         }
     }

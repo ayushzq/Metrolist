@@ -10,6 +10,8 @@ Room guests and Device Connect followers do not change the host queue after a lo
 
 Android and desktop begin bounded SABR recovery when the producer fails, while buffered audio can still play. Replacements warm up muted and follow the current position before handoff. A token-backed session that remains attestation pending after its first response fails early and excludes that profile through the same recovery policy.
 
+Android video-mode switches use bounded recovery when replacement preparation fails. Stream recovery derives audio/video mode from the failed resource, so a failure before the video toggle finishes committing still requests video.
+
 On Android, an offload AudioTrack that stops advancing its playback head after entering offload sleep is switched to PCM after two seconds. The 12-second playback watchdog remains the fallback for other output stalls.
 
 ## Android track transitions
@@ -22,7 +24,7 @@ Cancellation after a native handover commits the playing track's identity, resou
 
 Other crossfades keep separate players and their gain ramps. Same-album gapless transitions use the playlist path and do not ramp, even when crossfade is enabled. Video, live streams and tracks restored at a nonzero position keep the separate-player preload path. Queue edits, repeat-one and end-of-song sleep timers cancel the queued source.
 
-On Android, `MusicService.seekTo` cancels an active crossfade and leaves an unstarted preload queued.
+On Android, `MusicService.seekTo` cancels an active crossfade and leaves an unstarted preload queued. A ready preload is discarded before EOF or crossfade handoff if its requested audio/video mode no longer matches the current settings.
 
 ## Seek diagnostics
 
@@ -30,7 +32,7 @@ Export the playback log immediately after a jump. Android's 500-event buffer rec
 
 Lyrics taps include line indices, timestamps and offsets. Media-session seeks identify the command. Warm replacements remain muted until the outgoing player releases, while intentional crossfades keep their gain ramps.
 
-Android keeps silent preloads out of system audio-effect session registration. A secondary player shares the primary player's session ID and registers when overlap starts or when it becomes the primary player. Releasing the outgoing player keeps that session open. Silent preparation and cancellation send no effect-session broadcasts.
+Android keeps silent preloads out of system audio-effect session registration. A secondary player uses its own session ID and registers when overlap starts or when it becomes the primary player, which then adopts that ID. Silent preparation and cancellation send no effect-session broadcasts.
 
 Seek-bar release requires a changed value and the same song and duration as the gesture. Track/duration changes cancel pending gestures. Unknown-duration and live tracks cannot use the shared scrubber.
 
@@ -47,3 +49,9 @@ Finish current song arms an end-of-song stop when the countdown expires and canc
 ## Verification
 
 Run affected [platform checks](checks.md#platform-checks). Check both error-setting values, repeat modes, pause, local audio, synchronized playback and retry. For timers, check cancellation, unknown duration, crossfade and background/suspend behavior on each affected platform.
+
+FCast v3 subscribes to media-end events and matches their media URL to the loaded item before advancing the queue. Older receivers retain playback-update completion detection. Stop keeps late playback updates from reactivating the item; Play reloads stopped media at the latest requested seek position. Verify end-to-next, Stop then Play, and seeking before replay on a receiver.
+
+Desktop Radio retains the initial page continuation and its recommendation mode for autoplay. Android persists explicit chip selection separately from the default selected chip, so restoring a queue keeps the chosen feed.
+
+A seek during FCast startup updates the pending position used to accept receiver reports. This also applies when replay starts after Stop or an end event.

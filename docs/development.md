@@ -85,6 +85,12 @@ For example, Android's `ui/screens/HomeScreen.kt` uses the Android `HomeViewMode
 - Run the affected platform's [checks](checks.md). Format changed Kotlin with `ktlint --format` or the module's `ktlintFormat` task, then review the result.
 - Use Conventional Commits and `<type>/<short-kebab-case-description>` branch names. Do not bump `appVersion` in a feature or fix; it triggers releases.
 
+## PR disclosure
+
+Every PR body must include a visible `AI usage:` line naming all AI models used to author or modify its code or documentation, including later agent edits. Include model versions when known. An editor or agent name alone, such as Cursor or Codex, does not identify the model. Do not guess an identity that the tool does not expose. If no AI authored any changes, write `AI usage: No AI was used.`
+
+The [PR disclosure workflow](../.github/workflows/pr-ai-disclosure.yml) comments when the declaration is missing or unfilled and updates its existing comment when a declaration is provided. Do not approve or merge until the required disclosure is present and complete. The automated check verifies the declaration's presence, not whether the author named the models truthfully.
+
 ## Icons
 
 Gradient app icon sources live in `assets/app-icons/gradient/`. Its foreground, monochrome and full SVGs center the glyph in a 52 dp box on the 108 dp adaptive canvas, matching the visual size of Android's Original glyph. Render `foreground.svg` and `full.svg` with `rsvg-convert -w 512 -h 512`, then encode them as lossless WebP for Android's `drawable-nodpi` resources. Keep the Android monochrome vector's transform in sync with `monochrome.svg`. Render `full.svg` at 1024 px and convert it to an RGB PNG for iOS's `GRADIENT.appiconset/AppIcon.png`. Gradient is an optional Android and iOS icon; desktop has no alternate-icon selector.
@@ -137,6 +143,10 @@ The lyrics **Sources** search dialog opens the keyboard only when a field is act
 
 ## Player
 
+If Android playback starts before application infrastructure is ready, the service stops without initializing playback. Task removal and destruction on this path must not resolve injected dependencies; destruction still cancels its coroutine scopes.
+
+Android task removal uses the app's playback lifetime observer, not Media3's default immediate shutdown for non-playing sessions. With Stop music on task clear disabled, buffering, playback preparation and remote-session demand keep the service alive. When demand ends, shutdown waits 60 seconds and is canceled if playback resumes or the task returns. Enabling the setting still stops playback after task removal.
+
 Android and the shared iOS host keep the mini player and full player in one persistent `BottomSheet`, using the theme's default spatial spring for expansion, collapse and drag settling. The iOS scaffold reserves the mini player's measured slot, including navigation and safe-area spacing. Expressive moves its player clearance from outer route padding into scroll content padding. Android draws its mini player over content and reports clearance through list padding. The sheet draws one opaque container from the mini player surface's measured bounds, color, border and shape, including Expressive corner smoothing. Bounds and corners interpolate with sheet progress; contents fade through using the theme's fast effects spring. Expanded content is not placed while transparent. The hidden mini player keeps its layout for measurement inside an empty clip with drawing, pointer hits, focus and accessibility disabled. Modern and Expressive mini-player styles keep their selected presentation in tablet-sized windows, including with pointer input. Vintage retains its wide controls in desktop layouts.
 
 Android and iOS full players show Cast in the top bar when available and Queue and Lyrics at the bottom. Android TV hides Cast and player Share controls in every layout. Song menus on TV omit Share and divide the primary row between the remaining actions. Standard and Vintage put Sleep timer, Shuffle and Repeat in connected bottom buttons. Classic puts Repeat, Previous, Play/Pause, Next and Like in its main row, Sleep timer between Queue and Lyrics, and Shuffle in the queue. Tablet layouts and the narrow pane beside a landscape queue use the connected buttons, omitting Shuffle for Classic. All timer buttons open the same dialog and control the same session state. The iOS host disables casting.
@@ -179,7 +189,9 @@ Tapping a search result inside a playlist, album or stored collection queues the
 
 **Keep paused when changing songs** is off by default. When on, local skips and selections keep an existing pause; a first song still plays. End-of-track transitions, Cast and remote commands are unaffected.
 
-Start radio for the current song keeps its audio, position and play state while replacing the queue. A different seed starts from the beginning. On Android, Start radio turns repeat off so recommendations can populate the queue.
+Start radio for the current song keeps its audio and position while replacing the queue. It resumes a paused song unless **Keep paused when changing songs** is on; the system media Start radio action always resumes it. While casting, the receiver keeps its playback state. A different seed starts from the beginning. On Android, Start radio turns repeat off so recommendations can populate the queue.
+
+With **Classic recommendations** enabled, radio first asks `/next` with the video id alone and retries with the song's mix only if the response contains just the seed and has no continuation. It keeps YouTube's recommendation order without skipping previously recommended songs, and serves the rest of a fetched page before requesting the next one. Continuations belong to the mode that fetched them; changing the setting mid-queue restarts the feed in the selected mode. Songs related to qualified plays are stored locally to feed Home Quick picks; seeds without a YouTube id, such as local files, skip that fetch.
 
 Desktop manual Next can promote an already prepared successor with the chosen play/pause intent. Active crossfades and podcasts use ordinary advancement so cancellation and resume positions apply.
 
@@ -197,7 +209,7 @@ Android Auto lists **Shuffle** as the first row of playlists, albums, Liked song
 
 The **Quick-add playlist** setting selects an editable saved playlist for the now-playing **Add to playlist** button, which uses the shared playlist mutation path with YouTube sync and duplicate checks. An unset or deleted destination prompts for configuration. Android Auto settings are available on phones too.
 
-Auto playback requests keep their resolved metadata until the session applies them, even if the metadata cache evicts it. Indexed queue selections cancel pending Auto requests so a late result cannot override them. Queue selection accepts occurrence-specific media IDs. Transport-only controllers can select an existing queue entry but cannot replace the queue or browse.
+Auto playback requests keep their resolved metadata until the session applies them, even if the metadata cache evicts it. Indexed queue selections cancel pending Auto requests so a late result cannot override them. Queue selection accepts occurrence-specific media IDs. Transport-only controllers can select an existing queue entry but cannot replace the queue or browse. Offline, resuming or selecting a queue entry keeps the whole queue and starts at the next downloaded entry; later transitions skip songs that are not downloaded.
 
 The YouTube playlists folder reads saved remote playlists without a network request while offline. If an online listing fails before returning anything, it falls back to stored playlists; a successful empty listing stays empty.
 
@@ -251,7 +263,7 @@ In playlist reorder mode, dragging the handle moves a song immediately; holding 
 
 Playlist sort and direction are shared across ordinary local and remote playlists (authored order, ascending by default). Liked songs (newest first), downloaded and cached collections have their own saved sorting. Re-liking moves a song to the top of Date Added. Remote refreshes update like recency while preserving likes made during the refresh. Local Date Added uses the membership row ID as its insertion sequence; position updates must preserve it.
 
-Startup recovers Room likes into the settings catalog once, including partial v14 catalogs and signed-in upgrades whose like catalog has not been activated in v14. Recovery keeps the existing order and recency, appends missing rows newest first, and leaves Room liked dates unchanged. Pending v14 unlikes and dislikes exclude stale Room rows. Recovery sends no votes to YouTube; a complete remote refresh remains authoritative. Activated account catalogs and restored v14 account catalogs stay unchanged because acknowledged unlikes no longer have pending votes. Pending credentials defer recovery. Completed signed-out recovery does not run again when the recovery version changes.
+Startup recovers Room likes into the settings catalog once, including partial v14 catalogs and signed-in upgrades whose like catalog has not been activated in v14. Recovery keeps the existing order and recency, appends missing rows newest first, and leaves Room liked dates unchanged. Pending v14 unlikes and dislikes exclude stale Room rows. Recovery sends no votes to YouTube; a complete remote refresh remains authoritative. Non-empty activated account catalogs without a YouTube session and restored v14 account catalogs stay unchanged because acknowledged unlikes no longer have pending votes. Signed-in and empty account catalogs still merge missing Room likes once: a startup like refresh can activate the account before recovery runs, likes added afterwards make the catalog non-empty, and a failed refresh would otherwise leave the old likes missing. The next complete refresh removes rows YouTube no longer has. Pending credentials defer recovery. Completed signed-out recovery does not run again when the recovery version changes.
 
 Signing in merges signed-out likes with YouTube Music likes. Those likes remain pending until YouTube includes them in its liked-song list. Signing back into an account keeps its saved custom order while signed-out likes merge into the catalog. That order takes precedence over overlapping signed-out likes, including partially restored catalogs. Local-file likes stay local and survive remote refreshes. Switching between signed-in accounts still clears the previous account catalog and restores the selected account's custom order.
 
@@ -321,7 +333,7 @@ LyricsPlus and Zemer are not lookup providers. Stored provider settings drop the
 
 Each candidate includes cached translations and dictionary-free romanization before display. When romanization dictionary preparation is needed and nothing is displayed, plain lyrics publish first. Enrichment replaces only the displayed entries and keeps source timestamps. Cancelled requests and late enrichment cannot overwrite newer results. Songwriter lookups run independently.
 
-The shared player keeps empty results loading until the request releases its deduplication key. Refetch bypasses the saved result; empty or failed refreshes keep the displayed lyrics. Player captions request lyrics when enabled, but hidden mobile players do not. Next-song prefetch requires full lyrics or subtitles.
+The shared player keeps empty results loading until the request releases its deduplication key. In the **Refetch** menu, **Automatic** bypasses the saved provider result and uses the configured lookup. Picking a provider searches only that provider and shows its candidates in the existing source picker. Empty or failed refreshes keep the displayed lyrics. Player captions request lyrics when enabled, but hidden mobile players do not. Next-song prefetch requires full lyrics or subtitles.
 
 ### Timing
 
@@ -353,6 +365,8 @@ The lyrics settings preview uses the current song's lyrics only during active pl
 
 ### AI translation
 
+Google romanization fails if any batch request fails or returns missing or misaligned lines. Failed batches must not substitute source text and enter the completed translation cache.
+
 Automatic translation uses glyphmind's bundled language detector for each main and background vocal. It checks whole lines, script runs and overlapping three-word passages. Confident foreign passages trigger translation through the selected provider; unknown lines remain unchanged unless translation is forced. There are no detection HTTP requests or detector model setting. Short phrases and names can be missed or misclassified. See [romanization and detection](romanization.md) for the model, downloads and behavior changes. Completed translations survive detector-policy changes when source, target, translation mode and provider configuration match. Negative decisions require the same detection policy and never block a forced request.
 
 Translation retries once after a failure, except for cancellation, missing credentials, HTTP 401/403 and 429. A final failure keeps the original lyrics and shows a short snackbar naming the cause. HTTP 200 alone does not prove a usable translation. Playback exports record the stage, provider, model, failure category, output lengths, finish reason and reasoning presence, but never lyrics, response bodies or credentials. Gemini thought parts are excluded. Manual translation enriches displayed lyrics without refetching and keeps the source, offset and video retiming.
@@ -368,6 +382,8 @@ OpenRouter free translations combine detection and translation in one batch. Pre
 A 429 never retries. Explicit upstream throttling moves to the next free model and remembers busy models per account for the server's retry interval, or one minute. Account daily limits stop automatic inference until the reset header or the next UTC day; a setup retry first checks `GET /api/v1/key` and resumes only if quota remains. Minute limits and ambiguous 429s stop the current operation. No fallback uses a paid model.
 
 See OpenRouter's [model catalog](https://openrouter.ai/api/v1/models), [limits](https://openrouter.ai/docs/api_reference/limits), [reasoning tokens](https://openrouter.ai/docs/guides/best-practices/reasoning-tokens), [structured outputs](https://openrouter.ai/docs/guides/features/structured-outputs), [provider selection](https://openrouter.ai/docs/guides/routing/provider-selection) and [errors](https://openrouter.ai/docs/api_reference/errors-and-debugging). Account privacy policies can filter out every provider and cause a 404; setup links to the privacy settings for that case.
+
+Kilo (`https://ai-gateway.kilo.ai/api/v1/chat/completions`) is a keyless OpenAI-compatible gateway preset whose `Authorization` header is omitted when the API key is left blank. Its default model `kilo-auto/free` is rotated server-side across active free models (anonymous limit: 200 requests/hour/IP), while free models from its public `/models` catalog remain selectable and an optional key unlocks paid models.
 
 iOS lyrics support long-press selection and the shared image editor. Images are shared as temporary PNG files that are removed when sharing finishes.
 
@@ -395,7 +411,7 @@ Legacy database conversion removes dangling children covered by cascading foreig
 
 ### Casting
 
-Android and desktop share the JVM cast sessions. Connecting and replacing media preserve receiver volume for Google Cast, DLNA/Sonos and FCast; only explicit adjustments send volume commands. Receiver reports supply remote volume state. Song changes replace media in the existing session. The stream proxy keeps TCP port `57643` and changes its URL token for each song. See the [Linux firewall setup](install/linux.md#sonos-and-dlna-with-firewalld) for SSDP reply and stream rules. Discovery lists each Sonos group once, at its coordinator from `ZoneGroupTopology`, because grouped, bonded and satellite speakers reject transport commands. Unreadable DLNA device descriptions are logged once per location in the playback log.
+Android and desktop share the JVM cast sessions. Connecting and replacing media preserve receiver volume for Google Cast, DLNA/Sonos and FCast; only explicit adjustments send volume commands. Receiver reports supply remote volume state. Song changes replace media in the existing session. The stream proxy keeps TCP port `57643` and changes its URL token for each song. It follows googlevideo redirects to other trusted `/videoplayback` endpoints, because uncached tracks are often served from another edge. See the [Linux firewall setup](install/linux.md#sonos-and-dlna-with-firewalld) for SSDP reply and stream rules. Discovery lists each Sonos group once, at its coordinator from `ZoneGroupTopology`, because grouped, bonded and satellite speakers reject transport commands. Unreadable DLNA device descriptions are logged once per location in the playback log.
 
 Desktop song selection, skips, receiver EOF and Radio use one transition owner. A new selection cancels the pending job, and EOF waits while a selection resolves. Media replacement keeps the receiver connected and publishes the loaded queue occurrence. Failed resolution stops the old receiver before selecting the failed song. Disconnect cancels cast resolution and continues the selected occurrence locally. Starting Radio from the current cast song keeps its receiver position and playback intent. DLNA/Sonos completion uses the last PLAYING position and the measured poll interval when STOPPED resets RelTime. Explicit Stop requests do not advance the queue.
 
@@ -411,19 +427,33 @@ Android and desktop offer an opt-in **SponsorBlock (podcasts)** switch. Only ite
 
 Only stable releases offer Sentry reporting. Builds whose app version contains `+` build metadata, including nightlies, never initialize Sentry or send crashes, ANRs, sessions or playback reports. These builds hide Sentry consent in onboarding and Privacy settings and preserve the saved consent for stable releases. Local crash logs and manual report sharing remain available.
 
-Every platform passes reports and breadcrumbs through `redactDiagnosticText` and `redactDiagnosticUrl` in `beforeSend` and `beforeBreadcrumb`, removing credentials, tokens, cookies, query strings, long opaque path segments and IP addresses. Playback reports attach the last 200 playback events. Android and desktop report playback failures only after recovery is exhausted or a track cannot start. iOS releases are named `com.metrolist.ios@<appVersion>` because sideloaded builds get random bundle IDs, and release workflows upload dSYMs. iOS reports HTTP 5xx automatically only for HTTPS on port 443 to `metrolist.cc`, its subdomains and `metroserverx.meowery.eu`; see [HTTP client errors](https://docs.sentry.io/platforms/apple/configuration/http-client-errors/).
+Every platform passes reports and breadcrumbs through `redactDiagnosticText` and `redactDiagnosticUrl` in `beforeSend` and `beforeBreadcrumb`, removing credentials, tokens, cookies, query strings, long opaque path segments and IP addresses. Android and desktop send the last 200 playback events, capped at 65,536 characters, as a redacted [Sentry log](https://docs.sentry.io/platforms/java/logs/) with `playback.event_id` linking it to the error, instead of a file attachment. They report playback failures only after recovery is exhausted or a track cannot start. iOS releases are named `com.metrolist.ios@<appVersion>` because sideloaded builds get random bundle IDs, and release workflows upload dSYMs. iOS reports HTTP 5xx automatically only for HTTPS on port 443 to `metrolist.cc`, its subdomains and `metroserverx.meowery.eu`; see [HTTP client errors](https://docs.sentry.io/platforms/apple/configuration/http-client-errors/).
 
 ### Imports and scrobbling
 
-Android account imports from Deezer, Tidal and Amazon Music handle one playlist or liked-songs collection at a time. Back from destination selection returns to the previous step, keeping CSV rows and mappings. Batches over `PlaylistImportManager.MAX_PLAYLIST_TRACKS` fail instead of truncating; Spotify reports skipped playlists. The desktop Spotify import can target Favorites, a new synced playlist or an editable synced playlist. Playlist file imports keep explicitly supplied titles as local custom metadata; bare URLs and filenames do not become titles, and local edits win on reimport.
+Android account imports from Deezer, Tidal and Amazon Music handle one playlist or liked-songs collection at a time. Back from destination selection returns to the previous step, keeping CSV rows and mappings. Batches over `PlaylistImportManager.MAX_PLAYLIST_TRACKS` fail instead of truncating; Spotify reports skipped playlists. The desktop Spotify import can target Favorites, a new synced playlist or an editable synced playlist. On Android, a CSV, TSV, M3U, M3U8, JSON or TXT file picked from **Restore** opens the playlist file import instead of failing as a backup. When importing a named `.m3u` or `.m3u8` file, paths and URLs are read one per line even without an extended M3U header. Playlist file imports keep explicitly supplied titles as local custom metadata; bare URLs and filenames do not become titles, and local edits win on reimport. Persisted import matches distinguish supplied albums as well as explicit video IDs, so reimporting same-title tracks from different albums preserves their resolved versions. Old album-ambiguous entries are resolved again rather than reused.
+
+The existing 15-second request deadlines in Deezer, Apple Music, Tidal and Amazon Music imports report incomplete-source failures, not user cancellations. Cancel and parent deadlines still cancel the import.
+
+Apple Music album URL imports follow the track relationship’s continuation links, preserving order and repeated tracks. Failed or incomplete pages fail the import instead of returning a partial album.
+
+Deezer album URL imports use the paginated track-list endpoint, not the truncated track preview embedded in album details. Failed continuations and incomplete track lists fail the import instead of saving a partial album.
+
+Tidal single-track URL imports read the requested track from the embed page's media-session metadata, retaining support for older Open Graph pages. Missing or malformed track metadata fails rather than importing a localized placeholder as a song title. Current-format album and playlist embeds preserve visible track order and duplicates. The public embed server caps collections at 50 entries without providing the original total; current-format URL imports reject collections at that cap instead of silently saving a partial list. Current-format collections containing videos or missing metadata also fail without importing a prefix.
 
 Android Spotify and Apple Music library imports open the destination picker for one playlist. Multiple playlists import sequentially through the foreground service into separate playlists with their source names and covers. The app creates synced playlists when signed into YouTube Music and local playlists otherwise. A failed playlist does not stop the rest. The final failure report includes completed counts and failed playlist names.
 
 Last.fm and ListenBrainz login dialogs link to account registration; ListenBrainz also links to its token page.
 
+Last.fm session keys only work with the API key that issued them. When Last.fm answers a scrobble or now-playing update with error 9, the account is marked as needing sign-in: Last.fm plays stay queued and are not sent, and the Last.fm settings page offers to sign in again. Signing back into the same account keeps and sends the held plays; another account still clears them.
+
+## Desktop stored playback
+
+Queue transitions and preloading prefer downloaded or cached audio, matching manual track selection, including video-type tracks. An explicit playback-client override bypasses stored audio. Video-viewer resolution still uses the explicit video request path.
+
 ## Android music widgets
 
-The music player defaults to 4x2 cells with a 250x110 dp fallback and a 2:1 preview. Shorter placements keep metadata beside the four controls when possible and drop the cover first; smaller ones use the controls-only and square variants. A three-column placement can shrink to 180 dp and uses artwork, metadata, Like and Play/Pause with 48 dp touch targets. Wider short placements retain the four controls and the action label. Short rows use icon controls when scaled metadata does not fit their height. Layout selection uses available dp and font scale, with size-specific RemoteViews on Android 12+ and portrait/landscape layouts before that. Keep existing widget IDs and actions valid.
+The music player defaults to 4x2 cells with a 250x110 dp fallback and a 2:1 preview. Shorter placements keep metadata beside the four controls when possible and drop the cover first; smaller ones use the controls-only and square variants. A three-column placement can shrink to 180 dp and uses artwork, metadata, Like and Play/Pause with 48 dp touch targets. Wider short placements retain the four controls and the action label. Short rows use icon controls when scaled metadata does not fit; at the default font scale, compact and wide rows switch to controls-only below 56 dp. The compact row layouts use 4 dp top and bottom padding to fit that cutoff. Layout selection uses available dp and font scale, with size-specific RemoteViews on Android 12+ and portrait/landscape layouts before that. Keep existing widget IDs and actions valid.
 
 Turntable requests a fixed 2x2 placement with 110 dp minimums and draws artwork and controls in a centered square. Recognizer requests 4x1 cells with a 250x40 dp fallback; its card wraps its content so taller hosts do not stretch it, and narrow hosts get the mic-only variant.
 
@@ -437,3 +467,9 @@ Music layouts order Previous, Play/Pause, Next and Like. Play/Pause shows a loca
 - For protobuf errors, initialize `metroproto` and run `./gradlew :shared:desktopTest` to regenerate and test the codecs.
 - If the configuration cache is stale, rerun the failing command with `--no-configuration-cache`.
 - Never commit heap dumps, traces, account tokens or local configuration. They can contain private data.
+
+Automatic backups are opt-in and keep the ten newest local archives. Android uses WorkManager, desktop runs while the app is open, and iOS requests background processing that the system may defer. Backup creation and retention cleanup are serialized. Failed retention cleanup retries without creating another archive.
+
+MLX preserves primary and inline background word groups inside background-marked rows. Sharing retains distinct foreground and background vocals even when they sing the same phrase.
+
+Desktop automatic backups recheck wall-clock deadlines at most five minutes after resume, rather than waiting for a full interval of awake time.

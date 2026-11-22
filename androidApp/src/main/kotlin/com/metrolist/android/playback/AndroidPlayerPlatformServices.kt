@@ -11,7 +11,6 @@ import coil3.ImageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
-import coil3.toBitmap
 import com.metrolist.android.ui.player.CanvasCache
 import com.metrolist.android.ui.player.canvasCacheIdentity
 import com.metrolist.android.ui.player.prepareCanvasClips
@@ -173,7 +172,7 @@ class AndroidPlayerPlatformServices(
                     }
                 }
             try {
-                if (mode != YouTubeCanvasMode.SHORT_CLIPS) {
+                if (mode != YouTubeCanvasMode.SHORT_CLIPS || canvas.clips.isEmpty() || resource.hasSabrVideo) {
                     val entry =
                         CanvasCache.get(context).preload(
                             cacheKey,

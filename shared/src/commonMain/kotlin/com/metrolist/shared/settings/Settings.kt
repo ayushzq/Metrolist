@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.metrolist.shared.api.lyrics.AiProviderPresets
+import com.metrolist.shared.backup.AutoBackupFrequency
 import com.metrolist.shared.constants.ActiveLyricsTextPositionKey
 import com.metrolist.shared.constants.AiSlopBlocklistCacheKey
 import com.metrolist.shared.constants.AiSlopBlocklistUpdatedAtKey
@@ -36,6 +37,9 @@ import com.metrolist.shared.constants.AppleMusicArtistVideosKey
 import com.metrolist.shared.constants.ArtistNameAliasesJsonKey
 import com.metrolist.shared.constants.AudioBoostDbKey
 import com.metrolist.shared.constants.AudioTrackPlaybackParamsKey
+import com.metrolist.shared.constants.AutoBackupEnabledKey
+import com.metrolist.shared.constants.AutoBackupFrequencyKey
+import com.metrolist.shared.constants.AutoBackupLastSuccessEpochKey
 import com.metrolist.shared.constants.AutoPureBlackKey
 import com.metrolist.shared.constants.BlockAiSlopArtistsKey
 import com.metrolist.shared.constants.BlockedArtistsUndoHintShownKey
@@ -43,10 +47,12 @@ import com.metrolist.shared.constants.BlockedSongsUndoHintShownKey
 import com.metrolist.shared.constants.BlockedUsersUndoHintShownKey
 import com.metrolist.shared.constants.CachedCollectionSortDirectionKey
 import com.metrolist.shared.constants.CachedCollectionSortKey
+import com.metrolist.shared.constants.CachedSongsCustomOrderKey
 import com.metrolist.shared.constants.CanvasCacheSizeKey
 import com.metrolist.shared.constants.CanvasContentOrderKey
 import com.metrolist.shared.constants.CanvasEnabledSourcesKey
 import com.metrolist.shared.constants.CastEnabledKey
+import com.metrolist.shared.constants.ClassicRecommendationsKey
 import com.metrolist.shared.constants.CollectionCoversKey
 import com.metrolist.shared.constants.DatabaseLikesRecoveryVersionKey
 import com.metrolist.shared.constants.DefaultOpenTabKey
@@ -126,6 +132,7 @@ import com.metrolist.shared.constants.LyricsPlusLighterKey
 import com.metrolist.shared.constants.LyricsProgressiveBlurKey
 import com.metrolist.shared.constants.LyricsShareImageStyleKey
 import com.metrolist.shared.constants.LyricsShowOriginalLyricsKey
+import com.metrolist.shared.constants.MatugenThemeKey
 import com.metrolist.shared.constants.MinimumSongDurationSecondsKey
 import com.metrolist.shared.constants.MusicVideoCacheJsonKey
 import com.metrolist.shared.constants.MusicVideoPlaybackEnabledKey
@@ -137,6 +144,8 @@ import com.metrolist.shared.constants.PendingSongVotesJsonKey
 import com.metrolist.shared.constants.PersistentPlaybackPositionKey
 import com.metrolist.shared.constants.PlayVideosInMiniPlayerKey
 import com.metrolist.shared.constants.PlaybackClientHealthJsonKey
+import com.metrolist.shared.constants.PlaybackClientStatsJsonKey
+import com.metrolist.shared.constants.PlaybackClientStatsLaunchesKey
 import com.metrolist.shared.constants.PlaybackPitchKey
 import com.metrolist.shared.constants.PlaybackSpeedKey
 import com.metrolist.shared.constants.PlayerConfigRemoteEtagKey
@@ -176,6 +185,9 @@ import com.metrolist.shared.constants.SlimNavBarKey
 import com.metrolist.shared.constants.SpeedDialArtworkRefreshTimesKey
 import com.metrolist.shared.constants.SpeedDialSurprisePinnedKey
 import com.metrolist.shared.constants.SponsorBlockEnabledKey
+import com.metrolist.shared.constants.SupportPromptDismissedKey
+import com.metrolist.shared.constants.SupportPromptLaunchThresholdKey
+import com.metrolist.shared.constants.SupportPromptLaunchesKey
 import com.metrolist.shared.constants.SwipeToRemoveSongKey
 import com.metrolist.shared.constants.SwipeToSongKey
 import com.metrolist.shared.constants.TempoPitchPresetsJsonKey
@@ -270,10 +282,19 @@ class Settings(
             sleepTimerDefaultFadeOut = value.fadeOut
         }
 
+    var autoBackupEnabled by preference(AutoBackupEnabledKey, false)
+    var autoBackupFrequency by preference(AutoBackupFrequencyKey, AutoBackupFrequency.WEEKLY.name)
+    var autoBackupLastSuccessEpochMillis by preference(AutoBackupLastSuccessEpochKey, 0L)
+
     var artistNameAliasesJson by preference(ArtistNameAliasesJsonKey, "{}")
+    var playbackClientStatsJson by preference(PlaybackClientStatsJsonKey, "{}")
+    var playbackClientStatsLaunches by preference(PlaybackClientStatsLaunchesKey, 0)
     val artistNameAliases: Map<String, String> by derivedStateOf { ArtistNameAliases.deserialize(artistNameAliasesJson) }
 
     var tokenLoginWarningDismissed by preference(TokenLoginWarningDismissedKey, false)
+    var supportPromptDismissed by preference(SupportPromptDismissedKey, false)
+    var supportPromptLaunches by preference(SupportPromptLaunchesKey, 0)
+    var supportPromptLaunchThreshold by preference(SupportPromptLaunchThresholdKey, 0)
     var visitorData by preference("")
     var dataSyncId by preference("")
     var innerTubeAuthUser by preference("0")
@@ -314,6 +335,7 @@ class Settings(
     var iosStyle by preference(false)
     var selectedThemeColor by preference(0L)
     var themePaletteStyle by preference(ThemePaletteStyle.TONAL_SPOT)
+    var matugenTheme by preference(MatugenThemeKey, false)
 
     var appFont by preference(FontOption.SYSTEM)
     var androidCustomFontFile by preference(AndroidCustomFontFileKey, "")
@@ -626,6 +648,7 @@ class Settings(
 
     var lastFmUsername by preference("")
     var lastFmSession by preference("")
+    var lastFmSessionExpired by preference(false)
     var lastFmEnabled by preference(true)
     var lastFmUseNowPlaying by preference(true)
     var lastFmShowFriends by preference(true)
@@ -670,6 +693,7 @@ class Settings(
     var swipeToSong by preference(SwipeToSongKey, false)
     var swipeToRemoveSong by preference(SwipeToRemoveSongKey, false)
     var autoLoadMore by preference(true)
+    var classicRecommendations by preference(ClassicRecommendationsKey, false)
     var disableLoadMoreWhenRepeatAll by preference(false)
     var preventDuplicateTracksInQueue by preference(false)
     var innerTubeCookie by preference("")
@@ -738,6 +762,19 @@ class Settings(
     var likedSongSortDirection by preference(LikedSongSortDirectionKey, SortDirection.DESCENDING)
     var cachedCollectionSort by preference(CachedCollectionSortKey, CollectionSort.NEWEST)
     var cachedCollectionSortDirection by preference(CachedCollectionSortDirectionKey, SortDirection.DESCENDING)
+    var cachedSongsCustomOrder by preference(CachedSongsCustomOrderKey, "[]")
+
+    fun cachedSongsOrder(): List<String> =
+        runCatching { Json.decodeFromString<List<String>>(cachedSongsCustomOrder) }.getOrDefault(emptyList())
+
+    fun setCachedSongsOrder(order: List<String>) {
+        cachedSongsCustomOrder = Json.encodeToString(order.distinct())
+    }
+
+    /** Resolves the persisted sort option for the cached collection. */
+    fun cachedCollectionSorting(): SavedPlaylistCollectionSorting =
+        playlistCollectionSorting("special:cached", cachedCollectionSort, cachedCollectionSortDirection)
+
     var downloadedCollectionSort by preference(DownloadedCollectionSortKey, CollectionSort.NEWEST)
     var downloadedCollectionSortDirection by preference(DownloadedCollectionSortDirectionKey, SortDirection.DESCENDING)
     private var collectionCoversJson by preference(CollectionCoversKey, "{}")
@@ -1328,6 +1365,7 @@ class Settings(
         private val nonPortableKeys =
             secureSettingsKeys +
                 setOf(
+                    "lastFmSessionExpired",
                     "aiSlopBlocklistCache",
                     "aiSlopBlocklistUpdatedAt",
                     SpeedDialArtworkRefreshTimesKey,
@@ -1361,6 +1399,9 @@ class Settings(
                     "appleMusicArtistCacheJson",
                     LastFmArtistCacheJsonKey,
                     LastFmPhotoCacheJsonKey,
+                    AutoBackupEnabledKey,
+                    AutoBackupFrequencyKey,
+                    AutoBackupLastSuccessEpochKey,
                 )
         private val backupExcludedKeys = nonPortableKeys - backupCredentialKeys
         private const val PORTABLE_SETTINGS_VERSION = 1

@@ -26,6 +26,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -93,9 +94,11 @@ import com.metrolist.shared.model.CollectionMeta
 import com.metrolist.shared.model.CollectionSort
 import com.metrolist.shared.model.PlaylistItem
 import com.metrolist.shared.model.SongItem
+import com.metrolist.shared.model.presentCollectionWithPlayCounts
 import com.metrolist.shared.settings.HiddenLibraryItem
 import com.metrolist.shared.settings.HiddenLibraryItemType
 import com.metrolist.shared.settings.HiddenLibraryItems
+import com.metrolist.shared.settings.Settings
 import com.metrolist.shared.state.GlobalYouTubeRepository
 import com.metrolist.shared.state.SongLikeState
 import com.metrolist.shared.ui.components.CollectionHeaderNavigation
@@ -107,12 +110,18 @@ import com.metrolist.shared.ui.menu.cursorContextMenu
 import com.metrolist.shared.ui.menu.rememberCursorContextMenuState
 import com.metrolist.shared.ui.navigation.LocalNavigator
 import com.metrolist.shared.ui.screens.StoredPlaylistContent
+import com.metrolist.shared.ui.screens.rememberPendingCollectionPlayState
 import com.metrolist.shared.ui.utils.rememberFileSizeFormatter
 import io.ktor.utils.io.jvm.javaio.toByteReadChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
@@ -205,8 +214,9 @@ private fun DownloadedPlaylistScreen() {
     val snapshot by produceState(emptyList<SongItem>() to emptyMap<String, CollectionMeta>(), files) {
         value =
             withContext(Dispatchers.IO) {
-                val storedSongs = database.dao().getSongsByIds(files.map { it.songId })
-                downloadedCollectionSnapshot(files, storedSongs)
+                val availableFiles = files.filter { DownloadManager.availableDownloadAudio(it) != null }
+                val storedSongs = database.dao().getSongsByIds(availableFiles.map { it.songId })
+                downloadedCollectionSnapshot(availableFiles, storedSongs)
             }
     }
     LocalPlaylistLayout(
@@ -231,33 +241,44 @@ private fun DownloadedPlaylistScreen() {
     )
 }
 
+private data class CachedPlaylistSnapshot(
+    val songs: List<SongItem> = emptyList(),
+    val sizeById: Map<String, Long> = emptyMap(),
+    val collectionMetadata: Map<String, CollectionMeta> = emptyMap(),
+    val sizeMb: Long = 0L,
+)
+
 @Composable
 private fun CachedPlaylistScreen() {
     val formatFileSize = rememberFileSizeFormatter()
-    val snapshot by produceState(Triple(emptyList<CachedSongEntry>(), emptyList<SongItem>(), 0L)) {
+    val snapshot by produceState(CachedPlaylistSnapshot()) {
         withContext(Dispatchers.IO) {
-            SongCacheManager.cachedSongs.collect {
+            combine(SongCacheManager.cachedSongs, SongCacheManager.accessTimeRevision) { _, _ -> Unit }.collect {
                 val entries = SongCacheManager.getCachedSongs()
-                value = Triple(entries, entries.map(CachedSongEntry::toSafeSongItem), SongCacheManager.getCacheSizeMB())
+                value =
+                    CachedPlaylistSnapshot(
+                        songs = entries.map(CachedSongEntry::toSafeSongItem),
+                        sizeById = entries.associate { it.songId to it.fileSize },
+                        collectionMetadata = SongCacheManager.cachedCollectionMetadata(entries),
+                        sizeMb = SongCacheManager.getCacheSizeMB(),
+                    )
             }
         }
     }
-    val (entries, songs, sizeMb) = snapshot
-    val sizeById = entries.associate { it.songId to it.fileSize }
 
     LocalPlaylistLayout(
         type = "cached",
         title = stringResource(Res.string.cached_songs_title),
-        subtitle = stringResource(Res.string.cached_songs_subtitle, String.format("%.1f", sizeMb.toDouble())),
+        subtitle = stringResource(Res.string.cached_songs_subtitle, String.format("%.1f", snapshot.sizeMb.toDouble())),
         icon = MetrolistIcons.Outlined.OfflinePin,
-        songs = songs,
+        songs = snapshot.songs,
         emptyMessage = stringResource(Res.string.cached_songs_empty),
         emptyHint = stringResource(Res.string.cached_songs_empty_hint),
-        collectionMetadata = entries.associate { it.songId to CollectionMeta(it.cachedAt, it.fileSize) },
+        collectionMetadata = snapshot.collectionMetadata,
         onRemoveSongs = SongCacheManager::removeSongsFromCache,
         onClearCollection = { SongCacheManager.clearCache() },
         extraInfo = { _, song ->
-            sizeById[song.id]?.let { size ->
+            snapshot.sizeById[song.id]?.let { size ->
                 Text(
                     text = formatFileSize(size),
                     style = MaterialTheme.typography.bodySmall,
@@ -277,7 +298,8 @@ private fun UploadedPlaylistScreen() {
     val fileFilterLabel = stringResource(Res.string.local_file)
     var songs by remember { mutableStateOf<List<SongItem>>(emptyList()) }
     var isLoading by remember { mutableStateOf(true) }
-    var isUploading by remember { mutableStateOf(false) }
+    var pendingUploads by remember { mutableIntStateOf(0) }
+    val uploadQueue = remember { Mutex() }
     var loadFailed by remember { mutableStateOf(false) }
 
     suspend fun refresh(force: Boolean = true) {
@@ -323,22 +345,26 @@ private fun UploadedPlaylistScreen() {
             } else {
                 null
             },
-        headerActionLabel = stringResource(if (isUploading) Res.string.uploading_action else Res.string.upload_action),
+        headerActionLabel = stringResource(if (pendingUploads > 0) Res.string.uploading_action else Res.string.upload_action),
         headerActionIcon = MetrolistIcons.Outlined.CloudUpload,
-        isHeaderActionLoading = isUploading,
+        isHeaderActionLoading = pendingUploads > 0,
         onHeaderAction = {
-            chooseUploadAudioFile(fileFilterLabel)?.let { file ->
+            val files = chooseUploadAudioFiles(fileFilterLabel)
+            pendingUploads += files.size
+            // Picked files upload one at a time; picking again while uploading adds to the queue.
+            files.forEach { file ->
                 scope.launch {
-                    isUploading = true
                     val result =
                         try {
-                            withContext(Dispatchers.IO) {
-                                GlobalYouTubeRepository.instance.uploadSong(file.name, file.length()) {
-                                    file.inputStream().toByteReadChannel(Dispatchers.IO)
+                            uploadQueue.withLock {
+                                withContext(Dispatchers.IO) {
+                                    GlobalYouTubeRepository.instance.uploadSong(file.name, file.length()) {
+                                        file.inputStream().toByteReadChannel(Dispatchers.IO)
+                                    }
                                 }
                             }
                         } finally {
-                            isUploading = false
+                            pendingUploads--
                         }
                     if (!result.success) {
                         AppState.snackbarHostState.showSnackbar(result.localizedErrorMessage())
@@ -381,11 +407,94 @@ private fun LocalPlaylistLayout(
     loadCompleteSongs: (suspend () -> List<SongItem>?)? = null,
 ) {
     val database = remember { GlobalContext.get().get<MusicDatabase>() }
-    var countSort by remember(type) { mutableStateOf(false) }
-    val countIds = remember(collectionMetadata, countSort) { if (countSort) collectionMetadata?.keys?.toList().orEmpty() else emptyList() }
-    val playCounts by remember(database, countIds) {
-        if (countIds.isEmpty()) flowOf(emptyMap()) else database.collectionPlayCounts(countIds)
-    }.collectAsState(emptyMap())
+    val isCachedCollection = type == "cached"
+    val cachedSorting = if (isCachedCollection) Settings.shared.cachedCollectionSorting() else null
+    val initialSort =
+        when (type) {
+            "cached" -> {
+                cachedSorting?.sort
+            }
+
+            "downloaded" -> {
+                Settings.shared
+                    .playlistCollectionSorting(
+                        "special:downloaded",
+                        Settings.shared.downloadedCollectionSort,
+                        Settings.shared.downloadedCollectionSortDirection,
+                    ).sort
+            }
+
+            else -> {
+                null
+            }
+        }
+    var countSort by remember(type) { mutableStateOf(initialSort == CollectionSort.MOST_PLAYED) }
+    val needsPlayCounts = countSort || cachedSorting?.sort == CollectionSort.MOST_PLAYED
+    val countIds =
+        remember(collectionMetadata, needsPlayCounts) {
+            if (needsPlayCounts) collectionMetadata?.keys?.toList().orEmpty() else emptyList()
+        }
+    var playCountsRetryKey by remember { mutableIntStateOf(0) }
+    val playCountsRequest = remember(database, countIds, playCountsRetryKey) { Any() }
+    val playCountsState by remember(database, countIds, playCountsRequest) {
+        if (countIds.isEmpty()) {
+            flowOf(playCountsRequest to Result.success(emptyMap<String, Int>()))
+        } else {
+            database
+                .collectionPlayCounts(countIds)
+                .map { counts -> playCountsRequest to Result.success(counts) }
+                .catch { emit(playCountsRequest to Result.failure(it)) }
+        }
+    }.collectAsState(null)
+    val playCountsFailed =
+        countIds.isNotEmpty() &&
+            playCountsState?.first === playCountsRequest &&
+            playCountsState?.second?.isFailure == true
+    val playCountsLoaded =
+        countIds.isEmpty() ||
+            (playCountsState?.first === playCountsRequest && playCountsState?.second?.isSuccess == true)
+    val playCounts =
+        if (playCountsLoaded) playCountsState?.second?.getOrNull().orEmpty() else emptyMap()
+    val pendingPlayState = rememberPendingCollectionPlayState(type)
+    val cachedCustomOrder =
+        remember(isCachedCollection, cachedSorting, Settings.shared.cachedSongsCustomOrder) {
+            if (isCachedCollection && cachedSorting?.sort == CollectionSort.MANUAL) {
+                Settings.shared.cachedSongsOrder()
+            } else {
+                emptyList()
+            }
+        }
+    val availableSongs = remember(songs, hasMoreSongs) { songs.takeUnless { hasMoreSongs }.orEmpty() }
+    val menuSongs =
+        remember(
+            availableSongs,
+            isCachedCollection,
+            cachedSorting,
+            cachedCustomOrder,
+            collectionMetadata,
+            playCounts,
+            playCountsLoaded,
+        ) {
+            when {
+                !isCachedCollection || cachedSorting == null -> {
+                    availableSongs
+                }
+
+                cachedSorting.sort == CollectionSort.MOST_PLAYED && !playCountsLoaded -> {
+                    emptyList()
+                }
+
+                else -> {
+                    availableSongs.presentCollectionWithPlayCounts(
+                        sort = cachedSorting.sort,
+                        direction = cachedSorting.direction,
+                        customOrder = cachedCustomOrder,
+                        metadata = collectionMetadata.orEmpty(),
+                        playCounts = playCounts,
+                    )
+                }
+            }
+        }
 
     var editingCover by remember(type) { mutableStateOf(false) }
     if (editingCover) CollectionCoverEditor(type, onDismiss = { editingCover = false })
@@ -425,7 +534,7 @@ private fun LocalPlaylistLayout(
             headerAction =
                 if (headerActionLabel != null && headerActionIcon != null && onHeaderAction != null) {
                     {
-                        TextButton(onClick = onHeaderAction, enabled = !isHeaderActionLoading, shapes = ButtonDefaults.shapes()) {
+                        TextButton(onClick = onHeaderAction, shapes = ButtonDefaults.shapes()) {
                             Icon(headerActionIcon, contentDescription = null, modifier = Modifier.size(18.dp))
                             Spacer(Modifier.width(6.dp))
                             Text(headerActionLabel)
@@ -436,6 +545,9 @@ private fun LocalPlaylistLayout(
                 },
             collectionMetadata = collectionMetadata,
             playCounts = playCounts,
+            playCountsLoaded = playCountsLoaded,
+            onRetryPlayCounts = { if (playCountsFailed) playCountsRetryKey++ },
+            pendingPlayState = pendingPlayState,
             onCollectionSortChange = { countSort = it == CollectionSort.MOST_PLAYED },
             onRemoveSongs = onRemoveSongs?.let { action -> { ids -> launchCollectionMutation { action(ids) } } },
             onClearCollection = onClearCollection?.let { action -> { launchCollectionMutation(action) } },
@@ -448,11 +560,14 @@ private fun LocalPlaylistLayout(
 
         PlaylistContextMenu(
             playlist = PlaylistItem(id = "auto:$type", title = title, thumbnail = null, author = subtitle),
-            songs = songs.takeUnless { hasMoreSongs }.orEmpty(),
+            songs = menuSongs,
+            downloadSongs = availableSongs,
             fallbackIcon = icon,
             expanded = collectionMenu.expanded,
             offset = collectionMenu.offset,
             onDismiss = collectionMenu::dismiss,
+            pendingPlayState = pendingPlayState,
+            onPlaybackAction = pendingPlayState::cancel,
             onHideFromLibrary = { HiddenLibraryItems.hide(HiddenLibraryItem(HiddenLibraryItemType.AUTO, type, title)) },
             additionalActions =
                 listOf(
@@ -473,6 +588,7 @@ private fun LocalPlaylistLayout(
                 offset = songMenu.offset,
                 onRemoveFromPlaylist = onRemoveSongs?.let { action -> { launchCollectionMutation { action(setOf(song.id)) } } },
                 removeLabel = stringResource(Res.string.remove),
+                onPlaybackAction = pendingPlayState::cancel,
                 onDismiss = {
                     songMenu.dismiss()
                 },
@@ -509,10 +625,11 @@ private fun launchCollectionMutation(action: suspend () -> Unit) {
     }
 }
 
-private fun chooseUploadAudioFile(description: String): File? {
+private fun chooseUploadAudioFiles(description: String): List<File> {
     val chooser = JFileChooser()
+    chooser.isMultiSelectionEnabled = true
     chooser.fileFilter = FileNameExtensionFilter(description, *YouTubeRepository.SUPPORTED_UPLOAD_EXTENSIONS.toTypedArray())
-    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFile else null
+    return if (chooser.showOpenDialog(null) == JFileChooser.APPROVE_OPTION) chooser.selectedFiles.toList() else emptyList()
 }
 
 private fun CachedSongEntry.toSafeSongItem(): SongItem {

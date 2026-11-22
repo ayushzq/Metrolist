@@ -17,6 +17,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
 import kotlin.math.roundToLong
 
+private const val MAX_EDITOR_DOCUMENT_CHARS = 8 * 1024 * 1024
+
 private val editorJson = Json { prettyPrint = true }
 
 class LyricsEditor(
@@ -150,7 +152,8 @@ class LyricsEditor(
 
     fun timestamp(positionMs: Long) {
         if (current.text.isEmpty()) {
-            edit("[${editorTimestamp(positionMs.coerceIn(0, MAX_TIME_MS))}] ", 0)
+            val line = "[${editorTimestamp(positionMs.coerceIn(0, MAX_TIME_MS))}] "
+            edit(line, line.length)
             return
         }
         val rows = current.text.split('\n').toMutableList()
@@ -165,12 +168,30 @@ class LyricsEditor(
         val rows = current.text.split('\n')
         val selected = selectedLines()
         val text = rows.filterIndexed { index, _ -> index !in selected }.joinToString("\n")
-        edit(text, current.selectionStart.coerceAtMost(text.length))
+        val lines = current.document.getValue("lines").jsonArray
+        // Identical displayed rows can have different timing metadata or vocal agents.
+        val remaining = if (text.isEmpty()) emptyList() else lines.filterIndexed { index, _ -> index !in selected }
+        val caret = current.selectionStart.coerceIn(0, text.length)
+        push(
+            current.copy(
+                text = text,
+                document = JsonObject(current.document + ("lines" to JsonArray(remaining))),
+                selectionStart = caret,
+                selectionEnd = caret,
+            ),
+        )
     }
 
     fun import(raw: String): Boolean =
         runCatching {
-            val document = editorDocument(raw, importing = true)
+            val input =
+                if (raw.startsWith('\uFEFF')) {
+                    require(raw.length <= MAX_EDITOR_DOCUMENT_CHARS)
+                    raw.removePrefix("\uFEFF").also { require(it.isNotBlank()) }
+                } else {
+                    raw
+                }
+            val document = editorDocument(input, importing = true)
             push(snapshot(document))
             true
         }.getOrDefault(false)
@@ -534,7 +555,7 @@ private fun editorDocument(
     raw: String,
     importing: Boolean = false,
 ): JsonObject {
-    require(raw.length <= 8 * 1024 * 1024)
+    require(raw.length <= MAX_EDITOR_DOCUMENT_CHARS)
     if (raw.trimStart().startsWith('{')) {
         val root = Json.parseToJsonElement(raw).jsonObject
         require(root["version"] == JsonPrimitive(2))

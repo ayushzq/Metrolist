@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,6 +50,7 @@ class SearchViewModel(
     private var nextSearchHistoryRevision = 0L
     private var loadingContinuation: String? = null
     private var loadMoreGeneration = 0
+    private val consumedContinuations = mutableSetOf<String>()
     private var unfilteredRecentSearchItems = emptyList<YTItem>()
     private var localSearchHistory = emptyList<String>()
     private var historySession = repository.sessionSnapshot()
@@ -62,15 +64,13 @@ class SearchViewModel(
             BlockedContent.version.drop(1).collect {
                 _uiState.update { it.copy(recentSearchItems = BlockedContent.filterItems(unfilteredRecentSearchItems)) }
                 val state = _uiState.value
-                val updatedState =
-                    state.clearUnavailableSearchFilter(
-                        hideVideoSongs = Settings.shared.hideVideoSongs,
-                        hidePodcasts = Settings.shared.hidePodcasts,
-                    )
+                val hideVideoSongs = Settings.shared.hideVideoSongs
+                val hidePodcasts = Settings.shared.hidePodcasts
+                val updatedState = state.clearUnavailableSearchFilter(hideVideoSongs, hidePodcasts)
                 if (updatedState.selectedFilter != state.selectedFilter) {
                     filterJob?.cancel()
                     cancelLoadMore()
-                    _uiState.value = updatedState
+                    _uiState.update { it.clearUnavailableSearchFilter(hideVideoSongs, hidePodcasts) }
                     search(recordSearchHistory = false)
                 } else {
                     _uiState.update {
@@ -125,12 +125,29 @@ class SearchViewModel(
 
     fun searchQuery(newQuery: String) {
         if (newQuery.isNotBlank()) {
-            suggestionsJob?.cancel()
-            _uiState.update { it.copy(query = newQuery, isQuerySubmitted = true, searchSuggestions = null) }
-            search(recordSearchHistory = !Settings.shared.pauseSearchHistory)
+            submitQuery(newQuery)
         } else if (newQuery.isEmpty()) {
             clearResults()
         }
+    }
+
+    private fun submitQuery(query: String) {
+        suggestionsJob?.cancel()
+        _uiState.update {
+            it.copy(
+                query = query,
+                isQuerySubmitted = true,
+                isSearching = true,
+                searchFailed = false,
+                searchSuggestions = null,
+                searchSummary = null,
+                unfilteredSearchSummary = null,
+                selectedFilter = null,
+                unfilteredResults = null,
+                filteredResults = null,
+            )
+        }
+        search(recordSearchHistory = !Settings.shared.pauseSearchHistory)
     }
 
     fun search(recordSearchHistory: Boolean = false) {
@@ -262,6 +279,13 @@ class SearchViewModel(
                             continuation,
                             recordSearchHistory = recordSearchHistory,
                         )
+                    val latest = _uiState.value
+                    if (loadMoreGeneration != generation || !isCurrentSearchRequest(latest, query, filter, submitted) ||
+                        latest.filteredResults?.continuation != continuation
+                    ) {
+                        return@launch
+                    }
+                    consumedContinuations += continuation
                     _uiState.update { current ->
                         if (!isCurrentSearchRequest(current, query, filter, submitted) ||
                             current.filteredResults?.continuation != continuation
@@ -273,6 +297,7 @@ class SearchViewModel(
                                     current.unfilteredResults ?: current.filteredResults,
                                     nextPage,
                                     continuation,
+                                    consumedContinuations,
                                 )
                             current.copy(
                                 unfilteredResults = merged,
@@ -305,6 +330,7 @@ class SearchViewModel(
         loadMoreJob?.cancel()
         loadMoreJob = null
         loadMoreGeneration++
+        consumedContinuations.clear()
         loadingContinuation = null
         _uiState.update { it.copy(isLoadingMore = false, loadMoreFailed = false) }
     }
@@ -334,11 +360,7 @@ class SearchViewModel(
         }
     }
 
-    fun searchFromHistory(query: String) {
-        suggestionsJob?.cancel()
-        _uiState.update { it.copy(query = query, isQuerySubmitted = true, searchSuggestions = null) }
-        search(recordSearchHistory = !Settings.shared.pauseSearchHistory)
-    }
+    fun searchFromHistory(query: String) = searchQuery(query)
 
     fun refreshSearchHistory() {
         resetRemoteHistoryIfSessionChanged()
@@ -378,7 +400,12 @@ class SearchViewModel(
         historyMutationJob?.cancel()
         removedRemoteSearchQueries.clear()
         _uiState.update {
-            it.copy(searchHistory = localSearchHistory, remoteSearchHistoryFeedbackTokens = emptyMap())
+            it.copy(
+                searchHistory = localSearchHistory,
+                remoteSearchHistoryFeedbackTokens = emptyMap(),
+                searchHistoryClearGeneration = it.searchHistoryClearGeneration + 1,
+                pendingSearchHistoryClears = 0,
+            )
         }
     }
 
@@ -394,30 +421,46 @@ class SearchViewModel(
     }
 
     fun clearSearchHistory() {
+        if (!scope.isActive) return
         resetRemoteHistoryIfSessionChanged()
         historySyncJob?.cancel()
         val session = repository.sessionSnapshot()
         val state = _uiState.value
+        val clearGeneration = state.searchHistoryClearGeneration
         val remoteTokens = state.remoteSearchHistoryFeedbackTokens.values.toList()
         val revisions =
             (state.searchHistory + localSearchHistory).distinct().associateWith { query ->
                 searchHistoryRevisions.getOrPut(query) { ++nextSearchHistoryRevision }
             }
+        _uiState.update { it.copy(pendingSearchHistoryClears = it.pendingSearchHistoryClears + 1) }
         historyMutationJob =
-            scope.launch {
-                historyMutationMutex.withLock {
-                    try {
-                        if (repository.sessionSnapshot() != session) return@withLock
-                        repository.clearSearchHistory(remoteTokens)
-                        if (repository.sessionSnapshot() != session) return@withLock
-                        removeLocalSearchHistory(revisions.filter { (query, revision) -> searchHistoryRevisions[query] == revision }.keys)
-                    } catch (e: CancellationException) {
-                        throw e
-                    } catch (_: Exception) {
-                        _uiState.update { it.copy(historyMutationFailures = it.historyMutationFailures + 1) }
+            scope
+                .launch {
+                    historyMutationMutex.withLock {
+                        try {
+                            if (repository.sessionSnapshot() != session) return@withLock
+                            repository.clearSearchHistory(remoteTokens)
+                            if (repository.sessionSnapshot() != session) return@withLock
+                            val unchangedQueries = revisions.filter { (query, revision) -> searchHistoryRevisions[query] == revision }.keys
+                            removeLocalSearchHistory(unchangedQueries)
+                            removedRemoteSearchQueries.addAll(unchangedQueries.map(String::lowercase))
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (_: Exception) {
+                            _uiState.update { it.copy(historyMutationFailures = it.historyMutationFailures + 1) }
+                        }
+                    }
+                }.also { job ->
+                    job.invokeOnCompletion {
+                        _uiState.update { current ->
+                            if (current.searchHistoryClearGeneration == clearGeneration) {
+                                current.copy(pendingSearchHistoryClears = current.pendingSearchHistoryClears - 1)
+                            } else {
+                                current
+                            }
+                        }
                     }
                 }
-            }
     }
 
     private fun removeLocalSearchHistory(queries: Set<String>) {
@@ -592,6 +635,8 @@ class SearchViewModel(
         val filteredResults: SearchResultPage? = null,
         val selectedFilter: SearchFilter? = null,
         val searchHistory: List<String> = emptyList(),
+        internal val searchHistoryClearGeneration: Long = 0L,
+        internal val pendingSearchHistoryClears: Int = 0,
         val historyMutationFailures: Int = 0,
         val remoteSearchHistoryFeedbackTokens: Map<String, String> = emptyMap(),
         val recentSearchItems: List<YTItem> = emptyList(),
@@ -600,7 +645,9 @@ class SearchViewModel(
         val isLoadingMore: Boolean = false,
         val searchFailed: Boolean = false,
         val loadMoreFailed: Boolean = false,
-    )
+    ) {
+        val isClearingSearchHistory: Boolean get() = pendingSearchHistoryClears > 0
+    }
 }
 
 object SearchHistoryCodec {
@@ -681,11 +728,12 @@ internal fun appendSearchResultPage(
     current: SearchResultPage?,
     next: SearchResultPage,
     requestedContinuation: String,
+    consumedContinuations: Set<String> = emptySet(),
 ): SearchResultPage {
     val items = (current?.items.orEmpty() + next.items).distinctBy(YTItem::id)
     return SearchResultPage(
         items = items,
-        continuation = next.continuation?.takeUnless { it == requestedContinuation },
+        continuation = next.continuation?.takeUnless { it == requestedContinuation || it in consumedContinuations },
     )
 }
 

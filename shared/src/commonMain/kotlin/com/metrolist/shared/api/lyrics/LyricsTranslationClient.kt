@@ -87,6 +87,30 @@ class LyricsTranslationClient(
         ).map { verifiedModel }
     }
 
+    private suspend fun validateAiCredentials(
+        provider: String,
+        apiKey: String,
+        model: String = "",
+        baseUrl: String = "",
+    ): Throwable? {
+        if (apiKey.isNotBlank()) return null
+        val preset = AiProviderPresets.find(provider) ?: return IllegalArgumentException("AI API key is required")
+        if (!preset.keyless) return IllegalArgumentException("AI API key is required")
+        val effectiveModel = model.ifBlank { preset.defaultModel }
+        if (effectiveModel.isBlank() || preset.isKeylessFreeModel(effectiveModel)) return null
+        val catalogResult = modelCatalog.models(preset, apiKey, baseUrl.ifBlank { preset.endpoint })
+        val models =
+            catalogResult.getOrNull()
+                ?: return catalogResult.exceptionOrNull()
+                    ?: IllegalArgumentException("AI API key is required")
+        val catalogModel = models.firstOrNull { it.id == effectiveModel }
+        return if (catalogModel != null && preset.allowsFreeModel(catalogModel)) {
+            null
+        } else {
+            IllegalArgumentException("AI API key is required")
+        }
+    }
+
     private fun HttpRequestBuilder.aiTimeout() {
         timeout {
             requestTimeoutMillis = AI_REQUEST_TIMEOUT_MS
@@ -187,7 +211,9 @@ class LyricsTranslationClient(
         onModelSelected: (String) -> Unit = {},
     ): Result<LyricsAiResult> =
         try {
-            if (apiKey.isBlank()) return Result.failure(IllegalArgumentException("AI API key is required"))
+            val preset = AiProviderPresets.find(provider)
+            val effectiveModel = if (preset?.keyless == true) model.ifBlank { preset.defaultModel } else model
+            validateAiCredentials(provider, apiKey, effectiveModel, baseUrl)?.let { return Result.failure(it) }
             val lineCount = lines.size
             val effectiveSystemPrompt =
                 systemPrompt.takeIf { it.isNotBlank() }
@@ -244,7 +270,7 @@ class LyricsTranslationClient(
                     provider = provider,
                     apiKey = apiKey,
                     baseUrl = baseUrl,
-                    model = model,
+                    model = effectiveModel,
                     systemPrompt = effectiveSystemPrompt.replace("{lineCount}", lineCount.toString()),
                     userPrompt = userPrompt,
                     schemaName = schemaName,
@@ -305,7 +331,7 @@ class LyricsTranslationClient(
         temperature: Double,
         onModelSelected: (String) -> Unit = {},
     ): Result<String> {
-        if (apiKey.isBlank()) return Result.failure(IllegalArgumentException("AI API key is required"))
+        validateAiCredentials(provider, apiKey, model, baseUrl)?.let { return Result.failure(it) }
         return when (AiProviderPresets.protocolFor(provider, baseUrl, model)) {
             AiProtocol.ANTHROPIC -> {
                 requestAnthropicCompatible(
@@ -499,12 +525,17 @@ class LyricsTranslationClient(
             )
             put("temperature", JsonPrimitive(temperature))
             put("max_tokens", JsonPrimitive(maxTokens))
-            if (includeReasoning && (provider.equals("OpenRouter", ignoreCase = true) || baseUrl.contains("openrouter.ai"))) {
+            val isOpenRouter = provider.equals("OpenRouter", ignoreCase = true) || baseUrl.contains("openrouter.ai")
+            val isKilo = provider.equals("Kilo", ignoreCase = true) || baseUrl.contains("ai-gateway.kilo.ai")
+            if (includeReasoning && (isOpenRouter || isKilo)) {
                 put(
                     "reasoning",
                     buildJsonObject {
-                        // These presets support disabling reasoning to leave the output budget available for translation.
-                        if (AiProviderPresets.openRouterOfflineModels.any { it.id == model }) put("enabled", JsonPrimitive(false))
+                        // Disable reasoning when supported so free models do not exhaust max_tokens before emitting JSON.
+                        if (isKilo || AiProviderPresets.openRouterOfflineModels.any { it.id == model }) {
+                            put("enabled", JsonPrimitive(false))
+                        }
+                        if (isKilo) put("effort", JsonPrimitive("none"))
                         put("exclude", JsonPrimitive(true))
                     },
                 )
@@ -512,8 +543,14 @@ class LyricsTranslationClient(
             if (responseFormat != null) put("response_format", responseFormat)
         }
 
+        val fallbackUrl =
+            AiProviderPresets
+                .find(provider)
+                ?.takeIf { it.keyless }
+                ?.endpoint
+                ?: "https://openrouter.ai/api/v1/chat/completions"
         return requestWithStructuredFallback(
-            url = baseUrl.ifBlank { "https://openrouter.ai/api/v1/chat/completions" },
+            url = baseUrl.ifBlank { fallbackUrl },
             bodies =
                 listOf(
                     body(openAiResponseFormat(schemaName, schema)),
@@ -523,7 +560,7 @@ class LyricsTranslationClient(
                 ).distinct(),
             parse = ::extractOpenAiContent,
             applyHeaders = {
-                header("Authorization", "Bearer ${apiKey.trim()}")
+                if (apiKey.isNotBlank()) header("Authorization", "Bearer ${apiKey.trim()}")
                 header("HTTP-Referer", "https://github.com/MetrolistGroup/Metrolist")
                 header("X-Title", "Metrolist")
             },
@@ -888,47 +925,43 @@ class LyricsTranslationClient(
                 val batchEnd = (i + batchSize).coerceAtMost(textsToFetch.size)
                 val batch = textsToFetch.subList(i, batchEnd)
                 val batchText = batch.joinToString("|")
-                try {
-                    val response =
-                        httpClient.post("https://translate.googleapis.com/translate_a/single") {
-                            setBody(
-                                FormDataContent(
-                                    Parameters.build {
-                                        append("client", "gtx")
-                                        append("sl", "auto")
-                                        append("tl", "la")
-                                        append("dt", "rm")
-                                        append("q", batchText)
-                                    },
-                                ),
-                            )
-                        }
-                    if (response.status.isSuccess()) {
-                        val root = Json.parseToJsonElement(response.bodyAsText()).jsonArray
-                        val firstArr = root.firstOrNull()?.jsonArray
-                        val fullRomanizedString =
-                            firstArr
-                                ?.mapNotNull { segment ->
-                                    runCatching {
-                                        val arr = segment.jsonArray
-                                        arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
-                                            ?: arr.getOrNull(2)?.jsonPrimitive?.contentOrNull
-                                            ?: arr.getOrNull(0)?.jsonPrimitive?.contentOrNull
-                                    }.getOrNull()
-                                }?.joinToString("")
-                                .orEmpty()
-
-                        if (fullRomanizedString.isNotBlank()) {
-                            val split = fullRomanizedString.replace(Regex("\\s*\\|\\s*"), "|").split("|")
-                            batch.forEachIndexed { batchIndex, originalText ->
-                                val rom = split.getOrNull(batchIndex)?.trim()?.ifBlank { originalText } ?: originalText
-                                resultsMap[validIndices[i + batchIndex]] = rom
-                            }
-                        }
+                val response =
+                    httpClient.post("https://translate.googleapis.com/translate_a/single") {
+                        setBody(
+                            FormDataContent(
+                                Parameters.build {
+                                    append("client", "gtx")
+                                    append("sl", "auto")
+                                    append("tl", "la")
+                                    append("dt", "rm")
+                                    append("q", batchText)
+                                },
+                            ),
+                        )
                     }
-                } catch (e: CancellationException) {
-                    throw e
-                } catch (_: Exception) {
+                if (!response.status.isSuccess()) {
+                    throw LyricsTranslationHttpException(
+                        response.status.value,
+                        "Google romanization request failed (${response.status.value})",
+                    )
+                }
+                val root = Json.parseToJsonElement(response.bodyAsText()).jsonArray
+                val firstArr = root.firstOrNull()?.jsonArray
+                val fullRomanizedString =
+                    firstArr
+                        ?.mapNotNull { segment ->
+                            val arr = segment.jsonArray
+                            arr.getOrNull(3)?.jsonPrimitive?.contentOrNull
+                                ?: arr.getOrNull(2)?.jsonPrimitive?.contentOrNull
+                                ?: arr.getOrNull(0)?.jsonPrimitive?.contentOrNull
+                        }?.joinToString("")
+                        .orEmpty()
+                val split = fullRomanizedString.replace(Regex("\\s*\\|\\s*"), "|").split("|").map(String::trim)
+                if (split.size != batch.size || split.any(String::isBlank)) {
+                    throw LyricsTranslationException(LyricsTranslationFailure.INVALID_RESPONSE, "Google returned incomplete romanization")
+                }
+                batch.forEachIndexed { batchIndex, _ ->
+                    resultsMap[validIndices[i + batchIndex]] = split[batchIndex]
                 }
             }
 
@@ -1467,7 +1500,9 @@ class LyricsTranslationClient(
                 }
 
                 else -> {
-                    if (apiKey.isBlank()) throw IllegalArgumentException("missing credentials")
+                    validateAiCredentials(provider, apiKey, translationModel, baseUrl)?.let {
+                        throw if (it is IllegalArgumentException) IllegalArgumentException("missing credentials") else it
+                    }
                     val detection =
                         if (activationMode == "Automatic") {
                             shouldTranslateLyrics(

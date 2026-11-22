@@ -21,6 +21,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.metrolist.shared.ui.design.expressive.theme.ExpressiveMiniPlayerShape
+import com.metrolist.shared.ui.utils.settled
 
 internal val LocalPlayerSheetContainer = staticCompositionLocalOf<PlayerSheetContainerState?> { null }
 
@@ -46,10 +48,20 @@ internal data class PlayerSheetContainerStyle(
     val border: BorderStroke?,
 ) {
     fun shape(progress: Float): Shape {
-        val radius = cornerRadius * (1f - progress.coerceIn(0f, 1f))
-        return if (expressive) ExpressiveMiniPlayerShape(radius) else RoundedCornerShape(radius)
+        val clamped = progress.coerceIn(0f, 1f)
+        val radius = cornerRadius * (1f - clamped)
+        return if (expressive && clamped < EXPRESSIVE_SHAPE_MAX_PROGRESS) {
+            val smoothing = EXPRESSIVE_SHAPE_SMOOTHNESS_PERCENT * (1f - clamped / EXPRESSIVE_SHAPE_MAX_PROGRESS)
+            ExpressiveMiniPlayerShape(radius, smoothnessPercent = smoothing.toInt())
+        } else {
+            RoundedCornerShape(radius)
+        }
     }
 }
+
+private const val EXPRESSIVE_SHAPE_MAX_PROGRESS = 0.2f
+
+private const val EXPRESSIVE_SHAPE_SMOOTHNESS_PERCENT = 60
 
 @Composable
 fun PlayerSheetSurface(
@@ -141,7 +153,8 @@ internal class PlayerSheetClipShape(
             }
 
             is Outline.Generic -> {
-                Outline.Generic(outline.path.apply { translate(rect.topLeft) })
+                // Copy instead of translating the inner shape's path, which that shape may reuse.
+                Outline.Generic(Path().apply { addPath(outline.path, rect.topLeft) }.settled())
             }
         }
     }

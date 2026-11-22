@@ -38,6 +38,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.UIKitView
 import com.metrolist.innertubex.models.response.AccountsListResponse
@@ -46,6 +47,7 @@ import com.metrolist.shared.auth.AuthManager
 import com.metrolist.shared.auth.accountDiscoveryAction
 import com.metrolist.shared.auth.hasSupportedYouTubeAuthCookie
 import com.metrolist.shared.auth.selectionDataSyncId
+import com.metrolist.shared.auth.singleAccountDataSyncId
 import com.metrolist.shared.generated.resources.Res
 import com.metrolist.shared.generated.resources.authentication_data_extraction_failed
 import com.metrolist.shared.generated.resources.back
@@ -222,7 +224,8 @@ internal fun IosLoginScreen(
                 }
 
                 AccountDiscoveryAction.COMPLETE_LOGIN -> {
-                    finalizeLogin(authData)
+                    val dataSyncId = singleAccountDataSyncId(authData.dataSyncId, availableAccounts)
+                    finalizeLogin(authData.copy(dataSyncId = dataSyncId))
                 }
             }
         }
@@ -260,6 +263,8 @@ internal fun IosLoginScreen(
                         stringResource(
                             if (isSwitchingChannel) Res.string.switch_youtube_channel else Res.string.sign_in_to_youtube_music,
                         ),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 },
                 navigationIcon = {
@@ -280,13 +285,13 @@ internal fun IosLoginScreen(
                             shapes = ButtonDefaults.shapes(),
                         ) { Text(stringResource(Res.string.complete_sign_in)) }
                     }
-                    TextButton(
+                    IconButton(
                         onClick = {
                             scope.cancel()
                             onTokenLogin()
                         },
-                        shapes = ButtonDefaults.shapes(),
-                    ) { Text(stringResource(Res.string.token_login)) }
+                        shapes = IconButtonDefaults.shapes(),
+                    ) { Icon(MetrolistIcons.Outlined.Token, stringResource(Res.string.token_login)) }
                 },
             )
         },

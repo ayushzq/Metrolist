@@ -57,8 +57,8 @@ import com.metrolist.shared.db.entities.KIND_DOWNLOAD
 import com.metrolist.shared.generated.resources.Res
 import com.metrolist.shared.generated.resources.cast_permission_required
 import com.metrolist.shared.generated.resources.queued_songs
-import com.metrolist.shared.generated.resources.share
 import com.metrolist.shared.generated.resources.share_lyrics
+import com.metrolist.shared.generated.resources.share_song_to_story
 import com.metrolist.shared.generated.resources.unknown
 import com.metrolist.shared.listentogether.ListenTogetherManager
 import com.metrolist.shared.listentogether.ListenTogetherRoomRole
@@ -67,6 +67,7 @@ import com.metrolist.shared.settings.Settings
 import com.metrolist.shared.settings.displayName
 import com.metrolist.shared.state.SongLikeState
 import com.metrolist.shared.ui.LocalIsTv
+import com.metrolist.shared.ui.components.PlayerMenuAction
 import com.metrolist.shared.ui.components.PopupContent
 import com.metrolist.shared.ui.components.lyrics.LyricsShareDialog
 import com.metrolist.shared.ui.player.PlayerArtworkCrossfade
@@ -248,6 +249,7 @@ class AndroidPlayerPlatform(
             modifier = modifier,
             cornerRadius = cornerRadius,
             fillContainer = fillContainer,
+            cropVideoToFill = false,
             useSurfaceView = useSurfaceView,
             showControls = showControls,
             onFullscreenClick = onFullscreenClick,
@@ -296,6 +298,7 @@ class AndroidPlayerPlatform(
         onNavigateToArtist: (String) -> Unit,
         onNavigateToListenTogether: () -> Unit,
         onShowSongDetails: () -> Unit,
+        extraActions: List<PlayerMenuAction>,
     ) {
         val volume by playerConnection.volume.collectAsState()
         val playbackSpeed by playerConnection.playbackSpeedFlow.collectAsState()
@@ -313,6 +316,7 @@ class AndroidPlayerPlatform(
             onNavigateToArtist = onNavigateToArtist,
             onNavigateToListenTogether = onNavigateToListenTogether,
             onShowSongDetails = onShowSongDetails,
+            extraActions = extraActions,
         )
     }
 
@@ -339,6 +343,7 @@ class AndroidPlayerPlatform(
         val context = LocalContext.current
         var selectedText by remember(song.id) { mutableStateOf<String?>(null) }
         val shareTitle = stringResource(Res.string.share_lyrics)
+        val storyTitle = stringResource(Res.string.share_song_to_story)
         PopupContent(selectedText) { text ->
             LyricsShareDialog(
                 text = text,
@@ -346,8 +351,10 @@ class AndroidPlayerPlatform(
                 title = song.title,
                 artist = song.artists.joinToString { it.name },
                 artworkUrl = song.displayThumbnail,
-                exportLabel = stringResource(Res.string.share),
-                onExport = { shareImage(context, it, shareTitle) },
+                exportLabel = storyTitle,
+                storyMode = true,
+                isLocal = song.isLocal,
+                onExport = { shareImage(context, it, storyTitle) },
                 onShareText = { content ->
                     context.startActivity(
                         Intent.createChooser(
@@ -411,7 +418,7 @@ class AndroidPlayerPlatform(
                     )
                 }
             },
-            onLoadProviderResults = { customTitle, customArtist ->
+            onLoadProviderResults = { customTitle, customArtist, provider ->
                 currentSong?.let { song ->
                     val defaultArtist = song.artists.joinToString { it.name }
                     val resolvedTitle = customTitle?.takeIf { it.isNotBlank() } ?: song.title
@@ -426,6 +433,7 @@ class AndroidPlayerPlatform(
                         duration = song.duration,
                         album = song.album,
                         isCustomQuery = isCustomQuery,
+                        selectedProvider = provider,
                     )
                 }
             },
