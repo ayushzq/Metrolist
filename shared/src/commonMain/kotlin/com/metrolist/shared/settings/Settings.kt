@@ -734,7 +734,7 @@ class Settings(
 
     var musicVideoCacheJson by preference(MusicVideoCacheJsonKey, "{}")
     var musicVideoPlaybackEnabled by preference(MusicVideoPlaybackEnabledKey, true)
-    var musicVideoQuality by preference(MusicVideoQualityKey, MusicVideoQuality.AUTO)
+    var musicVideoQuality by preference(MusicVideoQualityKey, MusicVideoQuality.P2160)
     var youtubeCanvasQuality by preference(YouTubeCanvasQualityKey, MusicVideoQuality.P480)
     var youtubeCanvasMode by preference(YouTubeCanvasModeKey, YouTubeCanvasMode.SHORT_CLIPS)
 

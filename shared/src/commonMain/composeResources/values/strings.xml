@@ -519,6 +519,7 @@
     <!-- Translators: Label for quality smart; retained for translation compatibility but not currently referenced by app code. -->
     <!-- Translators: Label for automatic music video quality. -->
     <string name="music_video_quality_auto" tools:ignore="MissingTranslation">Auto</string>
+    <string name="music_video_quality_max" tools:ignore="MissingTranslation">Maximum (best available, up to 4K)</string>
     <!-- Translators: Label for quality resolution in the music video playback. %1$s is the vertical video resolution. -->
     <string name="music_video_quality_resolution" translatable="false">%1$sp</string>
     <!-- Translators: Label for resolution in the music video playback. -->

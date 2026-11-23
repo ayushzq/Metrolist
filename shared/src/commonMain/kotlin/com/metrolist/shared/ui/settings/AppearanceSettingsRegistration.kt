@@ -1011,10 +1011,10 @@ private fun SettingsGroupRegistryBuilder.videoPlaybackSettings(host: SharedSetti
         MusicVideoQuality.entries.map { quality ->
             SettingsChoice(
                 quality.name,
-                if (quality == MusicVideoQuality.AUTO) {
-                    stringResource(Res.string.music_video_quality_auto)
-                } else {
-                    stringResource(Res.string.music_video_quality_resolution, quality.name.drop(1))
+                when (quality) {
+                    MusicVideoQuality.AUTO -> stringResource(Res.string.music_video_quality_auto)
+                    MusicVideoQuality.P2160 -> stringResource(Res.string.music_video_quality_max)
+                    else -> stringResource(Res.string.music_video_quality_resolution, quality.name.drop(1))
                 },
             )
         }

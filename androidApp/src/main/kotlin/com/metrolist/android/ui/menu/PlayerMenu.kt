@@ -75,6 +75,7 @@ import com.metrolist.shared.generated.resources.download_not_found
 import com.metrolist.shared.generated.resources.equalizer
 import com.metrolist.shared.generated.resources.listen_together
 import com.metrolist.shared.generated.resources.music_video_quality_auto
+import com.metrolist.shared.generated.resources.music_video_quality_max
 import com.metrolist.shared.generated.resources.music_video_quality_resolution
 import com.metrolist.shared.generated.resources.music_video_resolution
 import com.metrolist.shared.generated.resources.music_video_resolution_current
@@ -666,6 +667,6 @@ private fun VideoResolutionPage(
 private fun MusicVideoQuality.displayName(): String =
     when (this) {
         MusicVideoQuality.AUTO -> stringResource(Res.string.music_video_quality_auto)
-        MusicVideoQuality.P2160 -> "4K (2160p)"
+        MusicVideoQuality.P2160 -> stringResource(Res.string.music_video_quality_max)
         else -> stringResource(Res.string.music_video_quality_resolution, name.drop(1))
     }

@@ -91,6 +91,7 @@ import com.metrolist.shared.generated.resources.max_image_cache_size
 import com.metrolist.shared.generated.resources.max_song_cache_size
 import com.metrolist.shared.generated.resources.music_video_quality
 import com.metrolist.shared.generated.resources.music_video_quality_auto
+import com.metrolist.shared.generated.resources.music_video_quality_max
 import com.metrolist.shared.generated.resources.music_video_quality_desc
 import com.metrolist.shared.generated.resources.music_video_quality_resolution
 import com.metrolist.shared.generated.resources.ok
@@ -804,6 +805,7 @@ fun StorageSettingsScreen(
                                 optionToString = {
                                     when (it) {
                                         MusicVideoQuality.AUTO -> stringResource(Res.string.music_video_quality_auto)
+                                        MusicVideoQuality.P2160 -> stringResource(Res.string.music_video_quality_max)
                                         else -> stringResource(Res.string.music_video_quality_resolution, it.name.drop(1))
                                     }
                                 },
